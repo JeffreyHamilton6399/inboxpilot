@@ -19,7 +19,6 @@ import {
   X,
   Inbox as InboxIcon,
   Plug,
-  AlertCircle,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useEmails, fetchEmailBody, NotConnectedError } from "@/lib/use-emails";
@@ -211,13 +210,14 @@ function EmailRow({
   );
 }
 
-function DraftPanel({ email, bodyLoading }: { email: Email; bodyLoading: boolean }) {
+function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolean }) {
   const tone = useStore((s) => s.tone);
   const setDraft = useStore((s) => s.setDraft);
   const { toast } = useToast();
   const [loading, setLoading] = React.useState(false);
   const [instruction, setInstruction] = React.useState("");
   const [copied, setCopied] = React.useState(false);
+  const [showAI, setShowAI] = React.useState(false);
 
   const existingDraft = useStore((s) => s.drafts[email.id]);
 
@@ -243,7 +243,9 @@ function DraftPanel({ email, bodyLoading }: { email: Email; bodyLoading: boolean
       }
       const data = await res.json();
       setDraft(email.id, data.draft);
-      toast({ title: regenerate ? "Draft regenerated" : "Draft ready", description: "Review and send when you're happy with it." });
+      toast({ title: regenerate ? "Draft regenerated" : "Draft ready" });
+      setShowAI(false);
+      setInstruction("");
     } catch (e) {
       toast({ title: "Couldn't generate draft", description: String(e), variant: "destructive" });
     } finally {
@@ -259,57 +261,83 @@ function DraftPanel({ email, bodyLoading }: { email: Email; bodyLoading: boolean
   };
 
   return (
-    <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
-      <div className="flex items-center gap-2">
-        <Wand2 className="h-4 w-4 text-primary" />
-        <span className="text-sm font-medium">AI draft reply</span>
-        {!tone.name ? (
-          <span className="text-[11px] text-amber-600 inline-flex items-center gap-1">
-            <AlertCircle className="h-3 w-3" /> Set your name in Settings for better drafts
-          </span>
-        ) : (
-          <span className="text-[11px] text-muted-foreground">in the voice of {tone.name}</span>
-        )}
-        {existingDraft && (
-          <Button size="sm" variant="ghost" className="ml-auto h-7" disabled={loading} onClick={() => generate(true)}>
-            {loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-            Regenerate
+    <div className="border-t bg-card">
+      {/* Compose textarea — normal, like Gmail */}
+      <div className="p-3 md:p-4 space-y-2">
+        <Textarea
+          value={existingDraft ?? ""}
+          onChange={(e) => setDraft(email.id, e.target.value)}
+          placeholder="Type your reply… or use AI to draft one"
+          className="min-h-[120px] resize-y border-0 bg-muted/30 focus-visible:ring-1"
+        />
+
+        {/* Action bar */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            size="sm"
+            className="brand-gradient text-white"
+            onClick={() => toast({ title: "Ready to send", description: "Gmail send is wired up — copy for now." })}
+            disabled={!existingDraft}
+          >
+            <Send className="h-3.5 w-3.5 mr-1.5" /> Send
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowAI((s) => !s)}
+            disabled={bodyLoading || loading}
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+            {loading ? "Writing…" : "AI"}
+          </Button>
+          {existingDraft && (
+            <>
+              <Button size="sm" variant="ghost" onClick={copy} className="h-8">
+                {copied ? <Check className="h-3.5 w-3.5 mr-1.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
+                {copied ? "Copied" : "Copy"}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 text-muted-foreground" onClick={() => setDraft(email.id, "")}>
+                Clear
+              </Button>
+            </>
+          )}
+        </div>
+
+        {/* AI panel — only shows when you click "AI" */}
+        {showAI && (
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-2 animate-fade-in-fast">
+            <div className="flex items-center gap-2">
+              <Wand2 className="h-3.5 w-3.5 text-primary" />
+              <span className="text-xs font-medium">AI assistant</span>
+              {!tone.name && (
+                <span className="text-[11px] text-amber-600">
+                  Set your name in Settings for better drafts
+                </span>
+              )}
+              <Button size="sm" variant="ghost" className="ml-auto h-6 text-xs" onClick={() => setShowAI(false)}>
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+            <Input
+              placeholder={existingDraft ? "Refine: 'make it shorter', 'more formal'…" : "Instruction: 'say I'm available Thursday'"}
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !bodyLoading) generate(Boolean(existingDraft)); }}
+              disabled={bodyLoading}
+              className="h-8"
+            />
+            <Button
+              size="sm"
+              className="w-full brand-gradient text-white"
+              disabled={loading || bodyLoading}
+              onClick={() => generate(Boolean(existingDraft))}
+            >
+              {loading ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-2" />}
+              {loading ? "Writing…" : existingDraft ? "Refine draft" : "Generate draft"}
+            </Button>
+          </div>
         )}
       </div>
-
-      {!existingDraft ? (
-        <div className="space-y-2">
-          {bodyLoading ? (
-            <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 animate-spin" /> Loading email body…
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Generate one in your tone, or add an instruction first (e.g. &quot;say I&apos;m available Thursday at 2pm&quot;).
-            </p>
-          )}
-          <Input placeholder="Optional: add an instruction…" value={instruction} onChange={(e) => setInstruction(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !bodyLoading) generate(false); }} disabled={bodyLoading} />
-          <Button className="w-full brand-gradient text-white" disabled={loading || bodyLoading} onClick={() => generate(false)}>
-            {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-            {loading ? "Writing…" : bodyLoading ? "Loading email…" : "Generate draft"}
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <Textarea value={existingDraft} onChange={(e) => setDraft(email.id, e.target.value)} className="min-h-[140px] bg-background resize-y" />
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={copy}>
-              {copied ? <Check className="h-3.5 w-3.5 mr-1.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
-              {copied ? "Copied" : "Copy"}
-            </Button>
-            <Button size="sm" className="brand-gradient text-white" onClick={() => toast({ title: "Ready to send", description: "Gmail send is wired up — paste into your compose window for now." })}>
-              <Send className="h-3.5 w-3.5 mr-1.5" /> Send
-            </Button>
-            <Input placeholder="Refine: 'make it shorter'…" value={instruction} onChange={(e) => setInstruction(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") generate(true); }} className="h-8 flex-1 min-w-[140px]" />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -365,6 +393,7 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      {/* Toolbar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b shrink-0">
         <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={onClose}>
           <X className="h-4 w-4" />
@@ -407,32 +436,32 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        <CategoryBadge id={email.category} className="ml-auto" />
       </div>
 
+      {/* Email body — scrolls independently */}
       <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
-        <div className="p-4 md:p-6 space-y-4 max-w-3xl">
-          <div>
-            <h2 className="text-xl font-semibold leading-tight">{email.subject}</h2>
-            <div className="mt-2 flex items-start gap-3">
-              <span className={cn("h-10 w-10 rounded-full flex items-center justify-center text-sm font-semibold text-white shrink-0", email.from.avatarColor)}>
-                {initials(email.from.name)}
-              </span>
-              <div className="min-w-0">
-                <div className="text-sm font-medium">{email.from.name}</div>
-                <div className="text-xs text-muted-foreground truncate">
-                  {email.from.email}
-                  {email.to ? ` · to ${truncateRecipients(email.to)}` : ""}
-                </div>
+        <div className="p-4 md:p-6 max-w-3xl">
+          <h2 className="text-xl font-semibold leading-tight">{email.subject}</h2>
+          <div className="mt-3 flex items-start gap-3">
+            <span className={cn("h-10 w-10 rounded-full flex items-center justify-center text-sm font-semibold text-white shrink-0", email.from.avatarColor)}>
+              {initials(email.from.name)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-medium">{email.from.name}</span>
+                <span className="text-xs text-muted-foreground truncate">{email.from.email}</span>
               </div>
-              <span className="ml-auto text-xs text-muted-foreground shrink-0"><TimeAgo iso={email.receivedAt} /></span>
+              {email.to && (
+                <div className="text-xs text-muted-foreground truncate mt-0.5">
+                  to {truncateRecipients(email.to)}
+                </div>
+              )}
             </div>
+            <span className="text-xs text-muted-foreground shrink-0"><TimeAgo iso={email.receivedAt} /></span>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <CategoryBadge id={email.category} />
-          </div>
-
-          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90 border-t pt-4">
+          <div className="mt-4 pt-4 border-t whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
             {loadingBody ? (
               <span className="inline-flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading message…
@@ -443,10 +472,11 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
               <span className="text-muted-foreground italic">(empty message)</span>
             )}
           </div>
-
-          <DraftPanel email={emailWithBody} bodyLoading={loadingBody} />
         </div>
       </div>
+
+      {/* Compose area — fixed at bottom, AI on demand */}
+      <ComposeArea email={emailWithBody} bodyLoading={loadingBody} />
     </div>
   );
 }

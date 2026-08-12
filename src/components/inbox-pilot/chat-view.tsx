@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import ReactMarkdown from "react-markdown";
 
 export function ChatView() {
   const chat = useStore((s) => s.chat);
@@ -143,8 +144,16 @@ export function ChatView() {
                 <span className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-white", m.role === "user" ? "bg-muted-foreground" : "brand-gradient")}>
                   {m.role === "user" ? <UserIcon className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </span>
-                <div className={cn("rounded-2xl px-4 py-2.5 text-sm max-w-[80%] whitespace-pre-wrap leading-relaxed", m.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted rounded-tl-sm")}>
-                  {m.content || (
+                <div className={cn("rounded-2xl px-4 py-2.5 text-sm max-w-[80%] leading-relaxed", m.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap" : "bg-muted rounded-tl-sm")}>
+                  {m.content ? (
+                    m.role === "assistant" ? (
+                      <div className="prose prose-sm dark:prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_pre]:my-2 [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_code]:bg-muted-foreground/10 [&_code]:text-foreground [&_strong]:font-semibold [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_a]:text-primary [&_a]:underline">
+                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      m.content
+                    )
+                  ) : (
                     <span className="inline-flex gap-1 items-center text-muted-foreground">
                       <Loader2 className="h-3 w-3 animate-spin" /> thinking…
                     </span>
