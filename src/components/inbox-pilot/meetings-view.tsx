@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
@@ -86,8 +85,7 @@ export function MeetingsView() {
   };
 
   return (
-    <div className="h-full">
-      <ScrollArea className="h-full">
+    <div className="h-full overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-5">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Sparkles className="h-4 w-4 text-primary" />
@@ -161,7 +159,6 @@ export function MeetingsView() {
             </div>
           )}
         </div>
-      </ScrollArea>
     </div>
   );
 }

@@ -31,7 +31,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
   TooltipContent,
@@ -356,8 +355,8 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
   const emailWithBody = { ...email, body };
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center gap-2 px-4 py-2 border-b">
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex items-center gap-2 px-4 py-2 border-b shrink-0">
         <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={onClose}>
           <X className="h-4 w-4" />
         </Button>
@@ -401,7 +400,7 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
         <div className="p-4 md:p-6 space-y-4 max-w-3xl">
           <div>
             <h2 className="text-xl font-semibold leading-tight">{email.subject}</h2>
@@ -435,7 +434,7 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
 
           <DraftPanel email={emailWithBody} bodyLoading={loadingBody} />
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
@@ -485,9 +484,9 @@ export function InboxView() {
   const notConnected = error instanceof NotConnectedError;
 
   return (
-    <div className="h-full flex">
-      <div className={cn("w-full md:w-[380px] shrink-0 border-r flex flex-col", selected && "hidden md:flex")}>
-        <div className="p-3 space-y-2 border-b">
+    <div className="h-full flex min-h-0">
+      <div className={cn("w-full md:w-[380px] shrink-0 border-r flex flex-col min-h-0", selected && "hidden md:flex")}>
+        <div className="p-3 space-y-2 border-b shrink-0">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Search inbox…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8 h-9" disabled={!gmailConnected} />
@@ -499,7 +498,7 @@ export function InboxView() {
             </Button>
           </div>
         </div>
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
           {filtered.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               {inboxEmpty ? "No emails yet." : "No emails match."}
@@ -509,10 +508,10 @@ export function InboxView() {
               <EmailRow key={e.id} email={e} active={selected?.id === e.id} hasDraft={Boolean(drafts[e.id])} onClick={() => selectEmail(e.id)} />
             ))
           )}
-        </ScrollArea>
+        </div>
       </div>
 
-      <div className={cn("flex-1 min-w-0", !selected && "hidden md:block")}>
+      <div className={cn("flex-1 min-w-0 min-h-0 overflow-hidden", !selected && "hidden md:block")}>
         {isLoading ? (
           <LoadingState />
         ) : notConnected ? (

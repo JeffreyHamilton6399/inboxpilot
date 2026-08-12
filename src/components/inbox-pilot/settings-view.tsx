@@ -15,7 +15,13 @@ import {
   Loader2,
   Check,
   AlertCircle,
+  Sun,
+  Moon,
+  Monitor,
+  Palette,
 } from "lucide-react";
+import { useTheme } from "next-themes";
+import { setAccent } from "@/components/theme-provider";
 import { useStore } from "@/lib/store";
 import { CATEGORIES, DEFAULT_TONE } from "@/lib/sample-data";
 import type { ToneProfile } from "@/lib/types";
@@ -24,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -305,10 +312,100 @@ function PrivacyCard() {
   );
 }
 
+const ACCENTS = [
+  { id: "emerald", label: "Emerald", color: "oklch(0.62 0.15 162)" },
+  { id: "blue", label: "Blue", color: "oklch(0.55 0.18 255)" },
+  { id: "violet", label: "Violet", color: "oklch(0.55 0.2 300)" },
+  { id: "rose", label: "Rose", color: "oklch(0.6 0.2 15)" },
+  { id: "orange", label: "Orange", color: "oklch(0.65 0.18 45)" },
+  { id: "slate", label: "Slate", color: "oklch(0.45 0.02 260)" },
+] as const;
+
+function AppearanceCard() {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = React.useState(false);
+  const [accent, setLocalAccent] = React.useState("emerald");
+  React.useEffect(() => {
+    setMounted(true);
+    setLocalAccent(localStorage.getItem("inboxpilot-accent") || "emerald");
+  }, []);
+
+  const changeAccent = (id: string) => {
+    setLocalAccent(id);
+    setAccent(id);
+  };
+
+  const themes = [
+    { id: "light", label: "Light", icon: Sun },
+    { id: "dark", label: "Dark", icon: Moon },
+    { id: "system", label: "System", icon: Monitor },
+  ] as const;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Palette className="h-4 w-4 text-primary" /> Appearance
+        </CardTitle>
+        <CardDescription>
+          Choose your theme and accent color. Changes apply instantly.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="space-y-2">
+          <Label>Theme</Label>
+          <div className="grid grid-cols-3 gap-2">
+            {themes.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTheme(t.id)}
+                className={cn(
+                  "flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-colors",
+                  mounted && theme === t.id
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border hover:bg-muted/50"
+                )}
+              >
+                <t.icon className="h-4 w-4" />
+                <span className="text-xs font-medium">{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Accent color</Label>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {ACCENTS.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => changeAccent(a.id)}
+                className={cn(
+                  "flex flex-col items-center gap-1.5 rounded-lg border p-2.5 transition-colors",
+                  mounted && accent === a.id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/50"
+                )}
+              >
+                <span
+                  className="h-6 w-6 rounded-full ring-2 ring-offset-2 ring-offset-background"
+                  style={{ backgroundColor: a.color, boxShadow: mounted && accent === a.id ? `0 0 0 2px ${a.color}` : "none" }}
+                />
+                <span className="text-[11px] font-medium">{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsView() {
   return (
     <div className="h-full overflow-y-auto scroll-thin">
       <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-4">
+        <AppearanceCard />
         <AccountsCard />
         <ToneForm />
         <CategoriesCard />

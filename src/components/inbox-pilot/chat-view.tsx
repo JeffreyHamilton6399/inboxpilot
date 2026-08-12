@@ -104,8 +104,8 @@ export function ChatView() {
   const stop = () => abortRef.current?.abort();
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-4 py-2 border-b">
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex items-center justify-between px-4 py-2 border-b shrink-0">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
           {emails && emails.length > 0 ? "Grounded in your live inbox · streaming" : "General AI · connect Gmail for inbox context"}
@@ -117,7 +117,7 @@ export function ChatView() {
         )}
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin min-h-0">
         <div className="mx-auto max-w-3xl px-4 py-6 space-y-4">
           {chat.length === 0 ? (
             <div className="text-center py-10">
@@ -157,7 +157,7 @@ export function ChatView() {
         </div>
       </div>
 
-      <div className="border-t bg-background p-3">
+      <div className="border-t bg-background p-3 shrink-0">
         <div className="mx-auto max-w-3xl flex items-end gap-2">
           <Textarea
             value={input}
