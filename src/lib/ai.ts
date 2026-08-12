@@ -6,9 +6,8 @@ import ZAI from "z-ai-web-dev-sdk";
  * Unified AI layer for InboxPilot.
  *
  * - Uses xAI Grok when GROK_API_KEY is configured (OpenAI-compatible API).
- * - Falls back to the built-in z-ai-web-dev-sdk (no key required) otherwise.
- * - If a Grok call fails (bad model, quota, network), we transparently fall
- *   back to the z-ai SDK so the app keeps working.
+ * - Falls back to the built-in z-ai-web-dev-sdk (no key required) if available.
+ * - If both fail, throws a clear error that surfaces to the user.
  *
  * Everything here is server-side only.
  */
@@ -28,19 +27,28 @@ const GROK_KEY = process.env.GROK_API_KEY?.trim();
 const GROK_MODEL = process.env.GROK_MODEL?.trim() || "grok-2-latest";
 const GROK_ENDPOINT = "https://api.x.ai/v1/chat/completions";
 
+// Lazy-init z-ai SDK; may fail if no config file exists.
 let zaiPromise: Promise<unknown> | null = null;
+let zaiAvailable = true;
 async function getZai() {
-  if (!zaiPromise) zaiPromise = ZAI.create();
-  return zaiPromise as Promise<Awaited<ReturnType<typeof ZAI.create>>>;
+  if (!zaiAvailable) return null;
+  if (!zaiPromise) {
+    zaiPromise = ZAI.create().catch((err) => {
+      console.error("[ai] z-ai SDK init failed:", String(err));
+      zaiAvailable = false;
+      return null;
+    });
+  }
+  return zaiPromise as Promise<Awaited<ReturnType<typeof ZAI.create>> | null>;
 }
 
 export function getProvider(): {
-  provider: "grok" | "zai";
+  provider: "grok" | "zai" | "none";
   model: string;
   ready: boolean;
 } {
   if (GROK_KEY) return { provider: "grok", model: GROK_MODEL, ready: true };
-  return { provider: "zai", model: "z-ai-web-dev-sdk", ready: true };
+  return { provider: "zai", model: "built-in", ready: true };
 }
 
 // --- Grok helpers ---
@@ -71,11 +79,11 @@ async function grokChat(
 
 async function zaiChat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string> {
   const zai = await getZai();
-  // The z-ai SDK uses the "assistant" role for system instructions.
+  if (!zai) throw new Error("AI provider unavailable — set GROK_API_KEY");
   const mapped = messages.map((m) =>
     m.role === "system" ? { role: "assistant" as const, content: m.content } : m
   );
-  void opts; // z-ai fallback ignores temperature/max_tokens; Grok path honors them.
+  void opts;
   const completion = await zai.chat.completions.create({
     messages: mapped,
     thinking: { type: "disabled" },
@@ -87,25 +95,29 @@ async function zaiChat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string
 
 /** Non-streaming chat completion. Returns the full text. */
 export async function chat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string> {
+  // Try Grok first
   if (GROK_KEY) {
     try {
       const res = await grokChat(messages, opts, false);
       if (!res.ok) {
-        throw new Error(`grok http ${res.status}: ${await res.text()}`);
+        const body = await res.text().catch(() => "");
+        throw new Error(`Grok HTTP ${res.status}: ${body.slice(0, 200)}`);
       }
       const data = await res.json();
-      return data?.choices?.[0]?.message?.content ?? "";
+      const content = data?.choices?.[0]?.message?.content;
+      if (content) return content as string;
+      throw new Error("Grok returned empty response");
     } catch (err) {
-      console.error("[ai] grok failed, falling back to z-ai:", String(err));
+      console.error("[ai] grok failed, trying z-ai fallback:", String(err));
+      // Fall through to z-ai
     }
   }
+  // Fallback to z-ai
   return zaiChat(messages, opts);
 }
 
 /**
  * Streaming chat completion. Yields incremental text chunks.
- * For Grok we parse SSE; for z-ai we fetch the full text then simulate a stream
- * (word-by-word) so the UI experience is consistent.
  */
 export async function* chatStream(
   messages: ChatMsg[],
@@ -115,7 +127,8 @@ export async function* chatStream(
     try {
       const res = await grokChat(messages, opts, true);
       if (!res.ok || !res.body) {
-        throw new Error(`grok http ${res.status}: ${await res.text()}`);
+        const body = await res.text().catch(() => "");
+        throw new Error(`Grok HTTP ${res.status}: ${body.slice(0, 200)}`);
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -142,15 +155,14 @@ export async function* chatStream(
       }
       return;
     } catch (err) {
-      console.error("[ai] grok stream failed, falling back to z-ai:", String(err));
+      console.error("[ai] grok stream failed, trying z-ai fallback:", String(err));
     }
   }
-  // z-ai fallback: fetch full text, then simulate streaming.
+  // z-ai fallback: fetch full text, then simulate streaming
   const full = await zaiChat(messages, opts);
   const tokens = full.match(/\S+\s*/g) ?? [full];
   for (const t of tokens) {
     yield t;
-    // small delay for UX; abortable between yields
     await new Promise((r) => setTimeout(r, 12));
   }
 }
@@ -161,7 +173,6 @@ export async function chatJSON<T = unknown>(
   opts: ChatOpts = {}
 ): Promise<T> {
   const text = await chat(messages, opts);
-  // strip code fences if present
   const cleaned = text
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
@@ -169,7 +180,6 @@ export async function chatJSON<T = unknown>(
   try {
     return JSON.parse(cleaned) as T;
   } catch {
-    // try to find the first {...} or [...]
     const match = cleaned.match(/[{[][\s\S]*[}\]]/);
     if (match) {
       try {

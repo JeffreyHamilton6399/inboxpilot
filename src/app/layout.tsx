@@ -27,6 +27,9 @@ export const metadata: Metadata = {
     "AI inbox",
   ],
   authors: [{ name: "InboxPilot" }],
+  icons: {
+    icon: "/icon.svg",
+  },
   openGraph: {
     title: "InboxPilot — Your AI email",
     description:

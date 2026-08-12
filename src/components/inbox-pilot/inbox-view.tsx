@@ -52,6 +52,15 @@ function initials(name: string) {
   return name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
 }
 
+/** Truncates a "to" field with many recipients to "First, Second +N more". */
+function truncateRecipients(to: string, max = 2): string {
+  // Split by commas, trim each
+  const parts = to.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= max) return to;
+  const shown = parts.slice(0, max).join(", ");
+  return `${shown} +${parts.length - max} more`;
+}
+
 function connectGmail() {
   fetch("/api/gmail/connect")
     .then((r) => (r.ok ? r.json() : Promise.reject(r)))
@@ -355,7 +364,7 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
   const emailWithBody = { ...email, body };
 
   return (
-    <div className="h-full flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2 border-b shrink-0">
         <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={onClose}>
           <X className="h-4 w-4" />
@@ -410,7 +419,10 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-medium">{email.from.name}</div>
-                <div className="text-xs text-muted-foreground">{email.from.email} {email.to ? `· to ${email.to}` : ""}</div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {email.from.email}
+                  {email.to ? ` · to ${truncateRecipients(email.to)}` : ""}
+                </div>
               </div>
               <span className="ml-auto text-xs text-muted-foreground shrink-0"><TimeAgo iso={email.receivedAt} /></span>
             </div>
@@ -511,7 +523,7 @@ export function InboxView() {
         </div>
       </div>
 
-      <div className={cn("flex-1 min-w-0 min-h-0 overflow-hidden", !selected && "hidden md:block")}>
+      <div className={cn("flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col", !selected && "hidden md:flex")}>
         {isLoading ? (
           <LoadingState />
         ) : notConnected ? (
