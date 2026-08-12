@@ -102,7 +102,7 @@ export async function getGmailAuthForUser(userId: string): Promise<{
   // Refresh if expired (or about to expire).
   let accessToken = account.accessToken;
   const expired =
-    !account.expiryDate || account.expiryDate < Date.now() + 60_000;
+    !account.expiryDate || account.expiryDate.getTime() < Date.now() + 60_000;
 
   if (expired && account.refreshToken) {
     try {
@@ -127,7 +127,7 @@ export async function getGmailAuthForUser(userId: string): Promise<{
           data: {
             accessToken: tokens.access_token,
             expiryDate: tokens.expires_in
-              ? Date.now() + tokens.expires_in * 1000
+              ? new Date(Date.now() + tokens.expires_in * 1000)
               : undefined,
           },
         });

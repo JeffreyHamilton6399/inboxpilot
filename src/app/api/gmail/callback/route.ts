@@ -40,7 +40,7 @@ export async function GET(req: Request) {
       update: {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token ?? undefined,
-        expiryDate: tokens.expiry_date ?? undefined,
+        expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
         scope: tokens.scope ?? undefined,
       },
       create: {
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
         email,
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token ?? undefined,
-        expiryDate: tokens.expiry_date ?? undefined,
+        expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
         scope: tokens.scope ?? undefined,
       },
     });
