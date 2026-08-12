@@ -215,9 +215,9 @@ export function Dashboard() {
   const t = titles[activeView];
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Mobile top bar */}
-      <div className="md:hidden flex items-center gap-2 h-14 px-3 border-b bg-background sticky top-0 z-30">
+      <div className="md:hidden flex items-center gap-2 h-14 px-3 border-b bg-background shrink-0 z-30">
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" aria-label="Open menu">

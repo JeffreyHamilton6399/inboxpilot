@@ -86,7 +86,7 @@ export function MeetingsView() {
   };
 
   return (
-    <div className="h-[calc(100vh-3.5rem)]">
+    <div className="h-full">
       <ScrollArea className="h-full">
         <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-5">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

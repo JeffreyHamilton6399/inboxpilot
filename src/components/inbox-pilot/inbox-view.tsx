@@ -203,7 +203,7 @@ function EmailRow({
   );
 }
 
-function DraftPanel({ email }: { email: Email }) {
+function DraftPanel({ email, bodyLoading }: { email: Email; bodyLoading: boolean }) {
   const tone = useStore((s) => s.tone);
   const setDraft = useStore((s) => s.setDraft);
   const { toast } = useToast();
@@ -220,7 +220,7 @@ function DraftPanel({ email }: { email: Email }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          email: { from: email.from.name, subject: email.subject, body: email.body },
+          email: { from: email.from.name, subject: email.subject, body: email.body, preview: email.preview },
           tone: tone as ToneProfile,
           instruction: instruction || undefined,
         }),
@@ -229,7 +229,10 @@ function DraftPanel({ email }: { email: Email }) {
         toast({ title: "Please log in again", variant: "destructive" });
         return;
       }
-      if (!res.ok) throw new Error("draft failed");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "draft failed");
+      }
       const data = await res.json();
       setDraft(email.id, data.draft);
       toast({ title: regenerate ? "Draft regenerated" : "Draft ready", description: "Review and send when you're happy with it." });
@@ -269,13 +272,19 @@ function DraftPanel({ email }: { email: Email }) {
 
       {!existingDraft ? (
         <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Generate one in your tone, or add an instruction first (e.g. &quot;say I&apos;m available Thursday at 2pm&quot;).
-          </p>
-          <Input placeholder="Optional: add an instruction…" value={instruction} onChange={(e) => setInstruction(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") generate(false); }} />
-          <Button className="w-full brand-gradient text-white" disabled={loading} onClick={() => generate(false)}>
+          {bodyLoading ? (
+            <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" /> Loading email body…
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Generate one in your tone, or add an instruction first (e.g. &quot;say I&apos;m available Thursday at 2pm&quot;).
+            </p>
+          )}
+          <Input placeholder="Optional: add an instruction…" value={instruction} onChange={(e) => setInstruction(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !bodyLoading) generate(false); }} disabled={bodyLoading} />
+          <Button className="w-full brand-gradient text-white" disabled={loading || bodyLoading} onClick={() => generate(false)}>
             {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-            {loading ? "Writing…" : "Generate draft"}
+            {loading ? "Writing…" : bodyLoading ? "Loading email…" : "Generate draft"}
           </Button>
         </div>
       ) : (
@@ -424,7 +433,7 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
             )}
           </div>
 
-          <DraftPanel email={emailWithBody} />
+          <DraftPanel email={emailWithBody} bodyLoading={loadingBody} />
         </div>
       </ScrollArea>
     </div>
@@ -476,7 +485,7 @@ export function InboxView() {
   const notConnected = error instanceof NotConnectedError;
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex">
+    <div className="h-full flex">
       <div className={cn("w-full md:w-[380px] shrink-0 border-r flex flex-col", selected && "hidden md:flex")}>
         <div className="p-3 space-y-2 border-b">
           <div className="relative">

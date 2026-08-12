@@ -104,7 +104,7 @@ export function ChatView() {
   const stop = () => abortRef.current?.abort();
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col">
+    <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-4 py-2 border-b">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />

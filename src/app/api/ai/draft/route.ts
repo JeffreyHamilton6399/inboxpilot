@@ -15,13 +15,17 @@ export async function POST(req: Request) {
         from?: string;
         subject?: string;
         body?: string;
+        preview?: string;
       };
       tone?: ToneProfile;
       instruction?: string;
     };
 
-    if (!email?.body) {
-      return NextResponse.json({ error: "Missing email" }, { status: 400 });
+    // Use body if available, otherwise fall back to preview (Gmail emails
+    // load their body on demand — the body might not be fetched yet).
+    const emailBody = email?.body?.trim() || email?.preview?.trim() || "";
+    if (!emailBody && !email?.subject) {
+      return NextResponse.json({ error: "Missing email content" }, { status: 400 });
     }
 
     const t = tone;
@@ -63,10 +67,10 @@ Output ONLY the reply body. No subject line, no "Dear ...", no preamble, no quot
 
     const user: ChatMsg = {
       role: "user",
-      content: `Original email from ${email.from ?? "(sender)"}:
-Subject: ${email.subject ?? "(no subject)"}
+      content: `Original email from ${email?.from ?? "(sender)"}:
+Subject: ${email?.subject ?? "(no subject)"}
 
-${email.body}
+${emailBody}
 
 ---
 ${instruction ? `Extra instruction from the user: ${instruction}` : "Write the reply."}`,

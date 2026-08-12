@@ -307,7 +307,7 @@ function PrivacyCard() {
 
 export function SettingsView() {
   return (
-    <div className="h-[calc(100vh-3.5rem)] overflow-y-auto scroll-thin">
+    <div className="h-full overflow-y-auto scroll-thin">
       <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-4">
         <AccountsCard />
         <ToneForm />
