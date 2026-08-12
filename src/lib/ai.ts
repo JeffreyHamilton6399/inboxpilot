@@ -5,9 +5,11 @@ import ZAI from "z-ai-web-dev-sdk";
 /**
  * Unified AI layer for InboxPilot.
  *
- * - Uses xAI Grok when GROK_API_KEY is configured (OpenAI-compatible API).
- * - Falls back to the built-in z-ai-web-dev-sdk (no key required) if available.
- * - If both fail, throws a clear error that surfaces to the user.
+ * Primary: built-in z-ai-web-dev-sdk (works with zero configuration, no key).
+ * Optional: xAI Grok when GROK_API_KEY is set AND valid.
+ *
+ * If Grok is configured but fails (bad key, no credits, wrong model), we
+ * silently fall back to the built-in SDK so the app keeps working.
  *
  * Everything here is server-side only.
  */
@@ -27,11 +29,11 @@ const GROK_KEY = process.env.GROK_API_KEY?.trim();
 const GROK_MODEL = process.env.GROK_MODEL?.trim() || "grok-2-latest";
 const GROK_ENDPOINT = "https://api.x.ai/v1/chat/completions";
 
-// Lazy-init z-ai SDK; may fail if no config file exists.
+// Lazy-init z-ai SDK; may fail if no config file exists (e.g. on Vercel).
 let zaiPromise: Promise<unknown> | null = null;
-let zaiAvailable = true;
+let zaiAvailable: boolean | null = null;
 async function getZai() {
-  if (!zaiAvailable) return null;
+  if (zaiAvailable === false) return null;
   if (!zaiPromise) {
     zaiPromise = ZAI.create().catch((err) => {
       console.error("[ai] z-ai SDK init failed:", String(err));
@@ -39,7 +41,9 @@ async function getZai() {
       return null;
     });
   }
-  return zaiPromise as Promise<Awaited<ReturnType<typeof ZAI.create>> | null>;
+  const zai = await zaiPromise;
+  if (zai) zaiAvailable = true;
+  return zai as Awaited<ReturnType<typeof ZAI.create>> | null;
 }
 
 export function getProvider(): {
@@ -79,7 +83,7 @@ async function grokChat(
 
 async function zaiChat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string> {
   const zai = await getZai();
-  if (!zai) throw new Error("AI provider unavailable — set GROK_API_KEY");
+  if (!zai) throw new Error("Built-in AI unavailable");
   const mapped = messages.map((m) =>
     m.role === "system" ? { role: "assistant" as const, content: m.content } : m
   );
@@ -91,43 +95,32 @@ async function zaiChat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string
   return completion.choices[0]?.message?.content ?? "";
 }
 
+async function tryGrok(messages: ChatMsg[], opts: ChatOpts): Promise<string | null> {
+  if (!GROK_KEY) return null;
+  try {
+    const res = await grokChat(messages, opts, false);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Grok HTTP ${res.status}: ${body.slice(0, 150)}`);
+    }
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (content) return content as string;
+    throw new Error("Grok returned empty response");
+  } catch (err) {
+    console.error("[ai] grok failed, falling back to built-in:", String(err));
+    return null;
+  }
+}
+
 // --- Public API ---
 
 /** Non-streaming chat completion. Returns the full text. */
 export async function chat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string> {
-  let grokError: Error | null = null;
-  // Try Grok first
-  if (GROK_KEY) {
-    try {
-      const res = await grokChat(messages, opts, false);
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`Grok HTTP ${res.status}: ${body.slice(0, 200)}`);
-      }
-      const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (content) return content as string;
-      throw new Error("Grok returned empty response");
-    } catch (err) {
-      grokError = err instanceof Error ? err : new Error(String(err));
-      console.error("[ai] grok failed:", grokError.message);
-      // Fall through to z-ai
-    }
-  }
-  // Fallback to z-ai
-  try {
-    return await zaiChat(messages, opts);
-  } catch (zaiErr) {
-    const zaiMsg = zaiErr instanceof Error ? zaiErr.message : String(zaiErr);
-    // If both failed, give a clear actionable error
-    if (grokError) {
-      throw new Error(
-        `AI is unavailable. Grok error: ${grokError.message}. Fallback error: ${zaiMsg}. ` +
-          `Please check your GROK_API_KEY and GROK_MODEL env vars.`
-      );
-    }
-    throw zaiErr;
-  }
+  // Try Grok first (if configured), then fall back to built-in z-ai SDK.
+  const grokResult = await tryGrok(messages, opts);
+  if (grokResult !== null) return grokResult;
+  return zaiChat(messages, opts);
 }
 
 /**
@@ -137,16 +130,18 @@ export async function* chatStream(
   messages: ChatMsg[],
   opts: ChatOpts = {}
 ): AsyncGenerator<string, void, unknown> {
+  // Try Grok streaming first
   if (GROK_KEY) {
     try {
       const res = await grokChat(messages, opts, true);
       if (!res.ok || !res.body) {
         const body = await res.text().catch(() => "");
-        throw new Error(`Grok HTTP ${res.status}: ${body.slice(0, 200)}`);
+        throw new Error(`Grok HTTP ${res.status}: ${body.slice(0, 150)}`);
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let yielded = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -161,15 +156,20 @@ export async function* chatStream(
           try {
             const json = JSON.parse(payload);
             const delta = json?.choices?.[0]?.delta?.content;
-            if (delta) yield delta as string;
+            if (delta) {
+              yielded = true;
+              yield delta as string;
+            }
           } catch {
             // ignore keep-alive / partial
           }
         }
       }
-      return;
+      if (yielded) return;
+      // If we got here with no yielded content, fall through to z-ai
+      console.error("[ai] grok stream yielded nothing, falling back to built-in");
     } catch (err) {
-      console.error("[ai] grok stream failed, trying z-ai fallback:", String(err));
+      console.error("[ai] grok stream failed, falling back to built-in:", String(err));
     }
   }
   // z-ai fallback: fetch full text, then simulate streaming
