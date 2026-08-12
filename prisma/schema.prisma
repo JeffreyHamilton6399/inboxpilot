@@ -1,15 +1,23 @@
 // InboxPilot database schema
-// Local dev: SQLite (file:./db/custom.db)
-// Vercel/production: switch provider to "postgresql" and set DATABASE_URL to
-// a serverless Postgres (Vercel Postgres, Supabase, Neon, Turso pg, etc.).
+// Uses PostgreSQL — works with Supabase (free), Vercel Postgres, Neon, or any
+// hosted Postgres. The same DATABASE_URL works for local dev AND production.
+//
+// Supabase setup (2 min):
+//   1. Create a free project at https://supabase.com
+//   2. Project Settings → Database → Connection string → "URI" (Transaction pooler)
+//   3. Paste it into .env as DATABASE_URL (keep the ?pgbouncer=true param)
+//   4. Run: bun run db:push
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Supabase's transaction pooler uses PgBouncer; Prisma needs this to avoid
+  // prepared-statement errors in serverless/edge environments.
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 model User {
@@ -32,7 +40,7 @@ model Account {
   email        String   // the connected address
   accessToken  String
   refreshToken String?
-  expiryDate    Int?    // epoch ms
+  expiryDate   Int?     // epoch ms
   scope        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
