@@ -4,7 +4,6 @@ import * as React from "react";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
-  Github,
   Inbox,
   PenLine,
   MessagesSquare,
@@ -16,7 +15,6 @@ import {
   Sun,
   Moon,
   Zap,
-  Lock,
   Heart,
   Mail,
 } from "lucide-react";
@@ -104,7 +102,7 @@ const COMPARISON = [
 function MockInbox() {
   return (
     <div className="relative">
-      <div className="absolute -inset-4 brand-gradient opacity-20 blur-2xl rounded-3xl" />
+      <div className="absolute -inset-4 bg-emerald-500/10 blur-2xl rounded-3xl" />
       <Card className="relative overflow-hidden shadow-2xl border-border/60">
         <CardHeader className="flex flex-row items-center gap-2 border-b bg-muted/40 py-3">
           <div className="flex gap-1.5">
@@ -167,7 +165,6 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
           <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
             <a href="#features" className="hover:text-foreground transition-colors">Features</a>
             <a href="#compare" className="hover:text-foreground transition-colors">Why free</a>
-            <a href="#self-host" className="hover:text-foreground transition-colors">Self-host</a>
           </nav>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -184,8 +181,7 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
       <main className="flex-1">
         {/* Hero */}
         <section className="relative overflow-hidden">
-          <div className="absolute inset-0 grid-bg opacity-60" />
-          <div className="absolute -top-24 left-1/2 -translate-x-1/2 h-72 w-[40rem] brand-gradient opacity-20 blur-3xl rounded-full" />
+          <div className="absolute inset-0 grid-bg opacity-50" />
           <div className="relative mx-auto max-w-6xl px-4 pt-16 pb-12 md:pt-24 md:pb-20 grid lg:grid-cols-2 gap-12 items-center">
             <div>
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
@@ -207,10 +203,8 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
                 <Button size="lg" onClick={() => onGetStarted("signup")} className="brand-gradient text-white h-12 px-6 text-base">
                   Get started free <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
-                <Button size="lg" variant="outline" className="h-12 px-6 text-base" asChild>
-                  <a href="#self-host">
-                    <Github className="h-4 w-4 mr-2" /> Self-host on Vercel
-                  </a>
+                <Button size="lg" variant="outline" className="h-12 px-6 text-base" onClick={() => onGetStarted("login")}>
+                  I have an account
                 </Button>
               </motion.div>
               <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
@@ -304,53 +298,6 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
             </Card>
           </div>
         </section>
-
-        {/* Self-host CTA */}
-        <section id="self-host" className="mx-auto max-w-6xl px-4 py-16 md:py-24">
-          <Card className="relative overflow-hidden border-border/60">
-            <div className="absolute inset-0 brand-gradient opacity-10" />
-            <CardContent className="relative p-8 md:p-12 grid md:grid-cols-2 gap-8 items-center">
-              <div>
-                <Badge variant="outline" className="mb-4 gap-1.5 border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300">
-                  <Lock className="h-3 w-3" /> Private by default
-                </Badge>
-                <h2 className="text-3xl font-bold tracking-tight">Run it on your own Vercel account</h2>
-                <p className="mt-3 text-muted-foreground">
-                  Clone the repo, add your AI key as an environment variable, and
-                  deploy. Your email flows through your model key on your own
-                  infrastructure — never a third-party SaaS.
-                </p>
-                <div className="mt-6 flex flex-col sm:flex-row gap-3">
-                  <Button className="brand-gradient text-white" asChild>
-                    <a href="https://vercel.com/new" target="_blank" rel="noreferrer">
-                      Deploy to Vercel <ArrowRight className="h-4 w-4 ml-2" />
-                    </a>
-                  </Button>
-                  <Button variant="outline" asChild>
-                    <a href="https://github.com" target="_blank" rel="noreferrer">
-                      <Github className="h-4 w-4 mr-2" /> View source
-                    </a>
-                  </Button>
-                </div>
-              </div>
-              <div className="rounded-lg border bg-background/60 overflow-hidden">
-                <div className="px-4 py-2 border-b bg-muted/40 text-xs text-muted-foreground font-mono">deploy in 3 steps</div>
-                <pre className="p-4 text-xs leading-relaxed overflow-x-auto scroll-thin font-mono">
-{`# 1. clone
-git clone https://github.com/you/inboxpilot
-cd inboxpilot
-
-# 2. add your AI key + Google OAuth
-cp .env.example .env.local
-#   fill in GROK_API_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
-
-# 3. deploy
-vercel --prod`}
-                </pre>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
       </main>
 
       <footer className="mt-auto border-t bg-background">
@@ -362,7 +309,7 @@ vercel --prod`}
           <div className="flex items-center gap-4">
             <a href="#features" className="hover:text-foreground transition-colors">Features</a>
             <a href="#compare" className="hover:text-foreground transition-colors">Why free</a>
-            <a href="https://github.com" target="_blank" rel="noreferrer" className="hover:text-foreground transition-colors">GitHub</a>
+            <a href="https://github.com/JeffreyHamilton6399/inboxpilot" target="_blank" rel="noreferrer" className="hover:text-foreground transition-colors">GitHub</a>
           </div>
         </div>
       </footer>
