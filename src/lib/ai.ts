@@ -95,6 +95,7 @@ async function zaiChat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string
 
 /** Non-streaming chat completion. Returns the full text. */
 export async function chat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string> {
+  let grokError: Error | null = null;
   // Try Grok first
   if (GROK_KEY) {
     try {
@@ -108,12 +109,25 @@ export async function chat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<st
       if (content) return content as string;
       throw new Error("Grok returned empty response");
     } catch (err) {
-      console.error("[ai] grok failed, trying z-ai fallback:", String(err));
+      grokError = err instanceof Error ? err : new Error(String(err));
+      console.error("[ai] grok failed:", grokError.message);
       // Fall through to z-ai
     }
   }
   // Fallback to z-ai
-  return zaiChat(messages, opts);
+  try {
+    return await zaiChat(messages, opts);
+  } catch (zaiErr) {
+    const zaiMsg = zaiErr instanceof Error ? zaiErr.message : String(zaiErr);
+    // If both failed, give a clear actionable error
+    if (grokError) {
+      throw new Error(
+        `AI is unavailable. Grok error: ${grokError.message}. Fallback error: ${zaiMsg}. ` +
+          `Please check your GROK_API_KEY and GROK_MODEL env vars.`
+      );
+    }
+    throw zaiErr;
+  }
 }
 
 /**

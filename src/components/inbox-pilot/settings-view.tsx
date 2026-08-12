@@ -403,7 +403,7 @@ function AppearanceCard() {
 
 export function SettingsView() {
   return (
-    <div className="h-full overflow-y-auto scroll-thin">
+    <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
       <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-4">
         <AppearanceCard />
         <AccountsCard />

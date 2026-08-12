@@ -234,13 +234,13 @@ export function Dashboard() {
         <Wordmark />
       </div>
 
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-h-0">
         <aside className="hidden md:flex w-64 shrink-0 border-r bg-sidebar/50 flex-col">
           <SidebarContent />
         </aside>
 
-        <div className="flex-1 flex flex-col min-w-0">
-          <header className="hidden md:flex h-14 items-center gap-4 px-6 border-b bg-background/80 backdrop-blur sticky top-0 z-20">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
+          <header className="hidden md:flex h-14 items-center gap-4 px-6 border-b bg-background/80 backdrop-blur shrink-0 z-20">
             <div className="min-w-0">
               <h1 className="font-semibold leading-tight truncate">{t.title}</h1>
               <p className="text-xs text-muted-foreground truncate">{t.sub}</p>

@@ -496,7 +496,7 @@ export function InboxView() {
   const notConnected = error instanceof NotConnectedError;
 
   return (
-    <div className="h-full flex min-h-0">
+    <div className="flex-1 flex min-h-0 overflow-hidden">
       <div className={cn("w-full md:w-[380px] shrink-0 border-r flex flex-col min-h-0", selected && "hidden md:flex")}>
         <div className="p-3 space-y-2 border-b shrink-0">
           <div className="relative">
