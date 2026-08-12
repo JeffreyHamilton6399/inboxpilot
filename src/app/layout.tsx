@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AppProviders } from "@/components/app-providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,30 +16,28 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "InboxPilot — Open-source AI inbox assistant",
+  title: "InboxPilot — Your AI email",
   description:
-    "InboxPilot is the free, open-source AI executive assistant for your inbox. Auto-categorize email, draft tone-matched replies, and chat with your inbox. A self-hostable alternative to Fyxer.",
+    "InboxPilot is your AI email client. Log in, connect Gmail, and let AI organize your inbox, draft replies in your voice, and answer questions about your email. Open source and free.",
   keywords: [
     "InboxPilot",
-    "open source",
-    "AI email assistant",
-    "Fyxer alternative",
-    "email organizer",
-    "AI draft replies",
-    "self-hosted",
+    "AI email client",
+    "email assistant",
+    "open source email",
+    "AI inbox",
   ],
   authors: [{ name: "InboxPilot" }],
   openGraph: {
-    title: "InboxPilot — Open-source AI inbox assistant",
+    title: "InboxPilot — Your AI email",
     description:
-      "The free, open-source AI executive assistant for your inbox. A self-hostable alternative to Fyxer.",
+      "Log in, connect Gmail, and let AI organize your inbox, draft replies, and answer questions about your email. Free and open source.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "InboxPilot — Open-source AI inbox assistant",
+    title: "InboxPilot — Your AI email",
     description:
-      "The free, open-source AI executive assistant for your inbox. A self-hostable alternative to Fyxer.",
+      "Your AI email client. Connect Gmail, organize, draft, and chat with your inbox.",
   },
 };
 
@@ -58,8 +57,10 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <Toaster />
+          <AppProviders>
+            {children}
+            <Toaster />
+          </AppProviders>
         </ThemeProvider>
       </body>
     </html>

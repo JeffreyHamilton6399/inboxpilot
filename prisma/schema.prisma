@@ -1,8 +1,7 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// InboxPilot database schema
+// Local dev: SQLite (file:./db/custom.db)
+// Vercel/production: switch provider to "postgresql" and set DATABASE_URL to
+// a serverless Postgres (Vercel Postgres, Supabase, Neon, Turso pg, etc.).
 
 generator client {
   provider = "prisma-client-js"
@@ -14,19 +13,29 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String
+  toneProfile  String?   // JSON-serialized ToneProfile
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  accounts     Account[]
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Account {
+  // Linked email providers (Gmail, Outlook, IMAP). Stores OAuth tokens.
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     String   // "gmail" | "outlook" | "imap"
+  email        String   // the connected address
+  accessToken  String
+  refreshToken String?
+  expiryDate    Int?    // epoch ms
+  scope        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, provider, email])
 }

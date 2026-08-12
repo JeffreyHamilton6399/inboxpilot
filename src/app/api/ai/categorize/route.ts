@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { chatJSON, type ChatMsg } from "@/lib/ai";
+import { requireAuth } from "@/lib/session";
 import { CATEGORIES } from "@/lib/sample-data";
 import type { CategoryId } from "@/lib/types";
 
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
 const VALID: CategoryId[] = CATEGORIES.map((c) => c.id);
 
 export async function POST(req: Request) {
+  const auth = await requireAuth();
+  if (!auth.ok) return auth.response;
   try {
     const { subject, from, preview, body } = (await req.json()) as {
       subject?: string;

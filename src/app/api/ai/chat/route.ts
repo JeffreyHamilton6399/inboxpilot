@@ -1,9 +1,17 @@
 import { chatStream, type ChatMsg } from "@/lib/ai";
+import { requireAuth } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const auth = await requireAuth();
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: "Authentication required" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  }
   try {
     const { messages, context } = (await req.json()) as {
       messages?: { role: "user" | "assistant"; content: string }[];

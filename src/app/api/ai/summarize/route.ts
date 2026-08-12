@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { chatJSON, type ChatMsg } from "@/lib/ai";
+import { requireAuth } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const auth = await requireAuth();
+  if (!auth.ok) return auth.response;
   try {
     const { transcript, title } = (await req.json()) as {
       transcript?: { speaker: string; text: string }[];

@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { chat, type ChatMsg } from "@/lib/ai";
+import { requireAuth } from "@/lib/session";
 import type { ToneProfile } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const auth = await requireAuth();
+  if (!auth.ok) return auth.response;
   try {
     const { email, tone, instruction } = (await req.json()) as {
       email?: {

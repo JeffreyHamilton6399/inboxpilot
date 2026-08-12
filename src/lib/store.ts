@@ -3,43 +3,43 @@
 import * as React from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { getSampleEmails, DEFAULT_TONE } from "./sample-data";
-import type { CategoryId, ChatMessage, Email, ToneProfile } from "./types";
+import { DEFAULT_TONE } from "./sample-data";
+import type { CategoryId, ChatMessage, ToneProfile } from "./types";
 
 export type View = "inbox" | "chat" | "meetings" | "settings";
 
 interface IPState {
-  // app lifecycle
-  launched: boolean;
   activeView: View;
   selectedEmailId: string | null;
 
-  // user profile
+  // user profile (mirrored to DB on save; localStorage for instant UX)
   tone: ToneProfile;
+  toneHydrated: boolean; // has tone been loaded from the server?
 
-  // per-email overrides (persisted; sample timestamps stay fresh)
+  // per-email client-side overrides (persisted; keyed by Gmail message id)
   drafts: Record<string, string>;
   categoryOverrides: Record<string, CategoryId>;
   readOverrides: Record<string, boolean>;
   starredOverrides: Record<string, boolean>;
 
-  // chat
+  // AI chat (per-browser)
   chat: ChatMessage[];
   chatBusy: boolean;
 
   // actions
-  launch: () => void;
-  reset: () => void;
   setView: (v: View) => void;
   selectEmail: (id: string | null) => void;
 
   setTone: (patch: Partial<ToneProfile>) => void;
+  replaceTone: (t: ToneProfile) => void;
+  setToneHydrated: (b: boolean) => void;
   resetTone: () => void;
+  clearLocalData: () => void;
 
   setDraft: (emailId: string, text: string) => void;
   setCategory: (emailId: string, cat: CategoryId) => void;
-  toggleRead: (emailId: string) => void;
-  toggleStar: (emailId: string) => void;
+  toggleRead: (emailId: string, currentUnread: boolean) => void;
+  toggleStar: (emailId: string, currentStarred: boolean) => void;
   markRead: (emailId: string) => void;
 
   addChat: (msg: ChatMessage) => void;
@@ -52,10 +52,10 @@ interface IPState {
 export const useStore = create<IPState>()(
   persist(
     (set) => ({
-      launched: false,
       activeView: "inbox",
       selectedEmailId: null,
       tone: DEFAULT_TONE,
+      toneHydrated: false,
       drafts: {},
       categoryOverrides: {},
       readOverrides: {},
@@ -63,25 +63,23 @@ export const useStore = create<IPState>()(
       chat: [],
       chatBusy: false,
 
-      launch: () => set({ launched: true }),
-      reset: () =>
+      setView: (v) => set({ activeView: v }),
+      selectEmail: (id) => set({ selectedEmailId: id }),
+
+      setTone: (patch) => set((s) => ({ tone: { ...s.tone, ...patch } })),
+      replaceTone: (t) => set({ tone: t, toneHydrated: true }),
+      setToneHydrated: (b) => set({ toneHydrated: b }),
+      resetTone: () => set({ tone: DEFAULT_TONE }),
+      clearLocalData: () =>
         set({
-          launched: false,
-          activeView: "inbox",
-          selectedEmailId: null,
-          tone: DEFAULT_TONE,
           drafts: {},
           categoryOverrides: {},
           readOverrides: {},
           starredOverrides: {},
           chat: [],
           chatBusy: false,
+          selectedEmailId: null,
         }),
-      setView: (v) => set({ activeView: v }),
-      selectEmail: (id) => set({ selectedEmailId: id }),
-
-      setTone: (patch) => set((s) => ({ tone: { ...s.tone, ...patch } })),
-      resetTone: () => set({ tone: DEFAULT_TONE }),
 
       setDraft: (emailId, text) =>
         set((s) => ({ drafts: { ...s.drafts, [emailId]: text } })),
@@ -89,23 +87,20 @@ export const useStore = create<IPState>()(
         set((s) => ({
           categoryOverrides: { ...s.categoryOverrides, [emailId]: cat },
         })),
-      toggleRead: (emailId) =>
-        set((s) => {
-          const base = baseEmail(emailId);
-          const current =
-            s.readOverrides[emailId] ?? base?.unread === false;
-          return {
-            readOverrides: { ...s.readOverrides, [emailId]: !current },
-          };
-        }),
-      toggleStar: (emailId) =>
-        set((s) => {
-          const base = baseEmail(emailId);
-          const current = s.starredOverrides[emailId] ?? base?.starred ?? false;
-          return {
-            starredOverrides: { ...s.starredOverrides, [emailId]: !current },
-          };
-        }),
+      toggleRead: (emailId, currentUnread) =>
+        set((s) => ({
+          readOverrides: {
+            ...s.readOverrides,
+            [emailId]: currentUnread, // store the *read* boolean
+          },
+        })),
+      toggleStar: (emailId, currentStarred) =>
+        set((s) => ({
+          starredOverrides: {
+            ...s.starredOverrides,
+            [emailId]: !currentStarred,
+          },
+        })),
       markRead: (emailId) =>
         set((s) => ({ readOverrides: { ...s.readOverrides, [emailId]: true } })),
 
@@ -124,9 +119,8 @@ export const useStore = create<IPState>()(
       clearChat: () => set({ chat: [] }),
     }),
     {
-      name: "inboxpilot-v1",
+      name: "inboxpilot-v2",
       partialize: (s) => ({
-        launched: s.launched,
         activeView: s.activeView,
         selectedEmailId: s.selectedEmailId,
         tone: s.tone,
@@ -139,61 +133,3 @@ export const useStore = create<IPState>()(
     }
   )
 );
-
-// --- Derived data helpers ---
-
-const BASE_EMAILS = getSampleEmails();
-const BASE_BY_ID = new Map(BASE_EMAILS.map((e) => [e.id, e]));
-
-function baseEmail(id: string): Email | undefined {
-  return BASE_BY_ID.get(id);
-}
-
-type OverrideSlice = Pick<
-  IPState,
-  "drafts" | "categoryOverrides" | "readOverrides" | "starredOverrides"
->;
-
-/** Merge sample emails with persisted overrides (pure). */
-export function selectEmails(s: OverrideSlice): Email[] {
-  return BASE_EMAILS.map((e) => {
-    const draft = s.drafts[e.id];
-    const category = s.categoryOverrides[e.id] ?? e.category;
-    const unread =
-      s.readOverrides[e.id] !== undefined
-        ? !s.readOverrides[e.id]
-        : e.unread;
-    const starred = s.starredOverrides[e.id] ?? e.starred;
-    return {
-      ...e,
-      category,
-      unread,
-      starred,
-      draft: draft ?? e.draft,
-    };
-  });
-}
-
-/**
- * Memoized hook over the derived emails. Selects the stable override maps
- * individually (so zustand doesn't see a new reference each render) and
- * recomputes via useMemo only when they actually change.
- */
-export function useEmails(): Email[] {
-  const drafts = useStore((s) => s.drafts);
-  const categoryOverrides = useStore((s) => s.categoryOverrides);
-  const readOverrides = useStore((s) => s.readOverrides);
-  const starredOverrides = useStore((s) => s.starredOverrides);
-  return React.useMemo(
-    () =>
-      selectEmails({
-        drafts,
-        categoryOverrides,
-        readOverrides,
-        starredOverrides,
-      }),
-    [drafts, categoryOverrides, readOverrides, starredOverrides]
-  );
-}
-
-export { BASE_EMAILS };
