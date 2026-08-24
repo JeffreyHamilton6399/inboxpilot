@@ -13,10 +13,12 @@ MIT licensed.
 ## What it does
 
 **Sorts on arrival.** Every message lands in one of eight categories — To Respond,
-Awaiting Reply, FYI, Comment, Notification, Meeting Update, Actioned, Marketing. A
-heuristic pass runs instantly on fetch using Gmail's own labels and sender patterns,
-which costs nothing and is right most of the time; you can re-run a real model on any
-single message when it isn't, and override either by hand.
+Awaiting Reply, FYI, Comment, Notification, Meeting Update, Actioned, Marketing. The
+first pass costs nothing and makes no network call: it reads Gmail's own category
+labels, the sender's domain, and the `List-Unsubscribe` header, which is what bulk
+senders are obliged to set and what a person writing to you never does. You can
+re-run a real model on any single message where that guess is wrong, and override
+either by hand.
 
 **Drafts, but does not send.** Describe how you write once — tone, length, formality,
 phrases you use, phrases you never want to see — and replies come back in that
@@ -146,7 +148,17 @@ TanStack Query for server state and Zustand for local, Tailwind 4 with shadcn/ui
 Outlook and plain IMAP are not supported — Gmail is the only provider. The inbox is
 fetched on demand and cached for fifteen seconds rather than pushed. Category
 overrides live in browser storage, so they do not follow you to another machine.
-There are no tests.
+Only one Gmail account per user is read, even though the schema allows several.
+
+## Tests
+
+```bash
+bun run test
+```
+
+They cover the parts where being wrong is expensive and the answer is checkable
+without a network: the OAuth state signing, the instant categorizer, and the
+Gmail body extraction. The React views have no tests.
 
 ## Contributing
 

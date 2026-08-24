@@ -1,12 +1,9 @@
 // InboxPilot database schema
 // Uses PostgreSQL — works with Supabase (free), Vercel Postgres, Neon, or any
-// hosted Postgres. The same DATABASE_URL works for local dev AND production.
+// hosted Postgres.
 //
-// Supabase setup (2 min):
-//   1. Create a free project at https://supabase.com
-//   2. Project Settings → Database → Connection string → "URI" (Transaction pooler)
-//   3. Paste it into .env as DATABASE_URL (keep the ?pgbouncer=true param)
-//   4. Run: bun run db:push
+// See .env.example for how to get DATABASE_URL and DIRECT_DATABASE_URL out of
+// Supabase, then run: bun run db:push
 
 generator client {
   provider = "prisma-client-js"
