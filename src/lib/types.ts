@@ -69,6 +69,8 @@ export interface ToneProfile {
 }
 
 export interface HealthResponse {
+  /** Effort actually being sent, or null when the parameter is not in use. */
+  reasoningEffort: string | null;
   /** Host of the configured OpenAI-compatible endpoint, e.g. "api.groq.com". */
   host: string;
   model: string;
