@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { chatJSON, type ChatMsg } from "@/lib/ai";
+import { chatJSON, aiFailure, type ChatMsg } from "@/lib/ai";
 import { requireAuth } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -51,9 +51,7 @@ ${transcriptText}`,
     });
   } catch (err) {
     console.error("[summarize] error:", err);
-    return NextResponse.json(
-      { error: "Failed to summarize", detail: String(err) },
-      { status: 500 }
-    );
+    const { status, message } = aiFailure(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

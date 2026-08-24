@@ -68,10 +68,9 @@ export interface ToneProfile {
   avoid: string[]; // phrases to avoid
 }
 
-export type AIProvider = "grok" | "zai" | "none";
-
 export interface HealthResponse {
-  provider: AIProvider;
+  /** Host of the configured OpenAI-compatible endpoint, e.g. "api.groq.com". */
+  host: string;
   model: string;
   ready: boolean;
 }

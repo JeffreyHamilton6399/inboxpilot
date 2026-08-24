@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/session";
 import { db } from "@/lib/db";
-import { DEFAULT_TONE } from "@/lib/sample-data";
+import { DEFAULT_TONE } from "@/lib/defaults";
 import type { ToneProfile } from "@/lib/types";
 
 export const runtime = "nodejs";

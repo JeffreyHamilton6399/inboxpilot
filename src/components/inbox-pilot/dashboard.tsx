@@ -11,7 +11,6 @@ import {
   Moon,
   Menu,
   LogOut,
-  Sparkles,
   Github,
   CircleDot,
 } from "lucide-react";
@@ -39,7 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import type { AIProvider, ToneProfile } from "@/lib/types";
+import type { HealthResponse, ToneProfile } from "@/lib/types";
 import { InboxView } from "./inbox-view";
 import { ChatView } from "./chat-view";
 import { MeetingsView } from "./meetings-view";
@@ -47,7 +46,7 @@ import { SettingsView } from "./settings-view";
 
 const NAV: { id: "inbox" | "chat" | "meetings" | "settings"; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
-  { id: "chat", label: "AI Chat", icon: MessagesSquare },
+  { id: "chat", label: "Ask", icon: MessagesSquare },
   { id: "meetings", label: "Meetings", icon: CalendarClock },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -66,18 +65,27 @@ function ThemeToggle() {
 }
 
 function ProviderBadge() {
-  const [info, setInfo] = React.useState<{ provider: AIProvider; model: string } | null>(null);
-  React.useEffect(() => {
-    fetch("/api/ai/health")
-      .then((r) => r.json())
-      .then((d) => setInfo({ provider: d.provider, model: d.model }))
-      .catch(() => setInfo({ provider: "none", model: "unavailable" }));
-  }, []);
-  const label = info?.provider === "grok" ? `Grok · ${info.model}` : info?.provider === "zai" ? "Built-in AI" : "Connecting…";
+  const { data } = useQuery<HealthResponse>({
+    queryKey: ["ai-health"],
+    queryFn: async () => {
+      const res = await fetch("/api/ai/health");
+      if (!res.ok) throw new Error("health check failed");
+      return res.json();
+    },
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  if (!data) return null;
+
   return (
-    <Badge variant="outline" className="gap-1.5 font-normal border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300">
-      <CircleDot className="h-3 w-3 animate-pulse-dot" />
-      {label}
+    <Badge
+      variant="outline"
+      className={cn("gap-1.5 font-normal", !data.ready && "text-muted-foreground")}
+      title={data.ready ? `Model served by ${data.host}` : "Set AI_API_KEY to enable AI features"}
+    >
+      <CircleDot className={cn("h-3 w-3", data.ready ? "text-emerald-500" : "text-muted-foreground")} />
+      {data.ready ? data.model : "AI not configured"}
     </Badge>
   );
 }
@@ -121,7 +129,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const toRespond = emails?.filter((e) => e.category === "to-respond").length ?? 0;
   const unread = emails?.filter((e) => e.unread).length ?? 0;
   const draftCount = Object.keys(drafts).length;
-  const hoursSaved = (1.2 + draftCount * 0.4 + (emails?.length ?? 0) * 0.05).toFixed(1);
 
   const email = session?.user?.email ?? "";
   const initials = email
@@ -159,16 +166,16 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="p-3 space-y-3 border-t">
         <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Hours saved / wk</span>
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400">{hoursSaved}h</span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Drafts written</span>
-            <span className="font-semibold">{draftCount}</span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Unread</span>
-            <span className="font-semibold">{unread}</span>
+            <span className="font-semibold tabular-nums">{unread}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Needs a reply</span>
+            <span className="font-semibold tabular-nums">{toRespond}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Drafts waiting</span>
+            <span className="font-semibold tabular-nums">{draftCount}</span>
           </div>
         </div>
         <ProviderBadge />
@@ -208,7 +215,7 @@ export function Dashboard() {
 
   const titles: Record<string, { title: string; sub: string }> = {
     inbox: { title: "Inbox", sub: total ? `${total} emails · ${toRespond} need a reply` : "Connect Gmail to load your email" },
-    chat: { title: "AI Chat", sub: "Ask anything about your inbox" },
+    chat: { title: "Ask", sub: "Questions answered from the mail in your inbox" },
     meetings: { title: "Meetings", sub: "Paste a transcript, get a summary" },
     settings: { title: "Settings", sub: "Tone profile, categories & accounts" },
   };
@@ -247,12 +254,12 @@ export function Dashboard() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               <Button variant="outline" size="sm" asChild>
-                <a href="https://github.com" target="_blank" rel="noreferrer">
+                <a href="https://github.com/JeffreyHamilton6399/inboxpilot" target="_blank" rel="noreferrer">
                   <Github className="h-4 w-4 mr-1.5" /> Source
                 </a>
               </Button>
-              <Button size="sm" className="brand-gradient text-white" onClick={() => useStore.getState().setView("chat")}>
-                <Sparkles className="h-4 w-4 mr-1.5" /> Ask AI
+              <Button size="sm" onClick={() => useStore.getState().setView("chat")}>
+                <MessagesSquare className="h-4 w-4 mr-1.5" /> Ask about your mail
               </Button>
               <ThemeToggle />
             </div>

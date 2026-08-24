@@ -132,7 +132,7 @@ function heuristicCategory(
 const cache = new Map<string, { at: number; data: Email[] }>();
 const CACHE_TTL = 15_000;
 
-export async function GET(req: Request) {
+export async function GET() {
   const auth = await requireAuth();
   if (!auth.ok) return auth.response;
 

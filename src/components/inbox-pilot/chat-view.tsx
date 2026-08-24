@@ -3,7 +3,6 @@
 import * as React from "react";
 import {
   Send,
-  Sparkles,
   Trash2,
   Loader2,
   Bot,
@@ -11,7 +10,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useEmails } from "@/lib/use-emails";
-import { SUGGESTED_CHAT_PROMPTS, CATEGORY_MAP } from "@/lib/sample-data";
+import { SUGGESTED_CHAT_PROMPTS, CATEGORY_MAP } from "@/lib/defaults";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -108,8 +107,9 @@ export function ChatView() {
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 border-b shrink-0">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Sparkles className="h-4 w-4 text-primary" />
-          {emails && emails.length > 0 ? "Grounded in your live inbox · streaming" : "General AI · connect Gmail for inbox context"}
+          {emails && emails.length > 0
+            ? "Answers are drawn from the mail in your inbox"
+            : "Connect Gmail and answers will cite your own mail"}
         </div>
         {chat.length > 0 && (
           <Button variant="ghost" size="sm" className="h-8 text-muted-foreground" onClick={clearChat} disabled={chatBusy}>
@@ -122,8 +122,8 @@ export function ChatView() {
         <div className="mx-auto max-w-3xl px-4 py-6 space-y-4">
           {chat.length === 0 ? (
             <div className="text-center py-10">
-              <div className="h-14 w-14 rounded-2xl brand-gradient mx-auto flex items-center justify-center mb-4">
-                <Bot className="h-7 w-7 text-white" />
+              <div className="h-14 w-14 rounded-2xl bg-primary mx-auto flex items-center justify-center mb-4">
+                <Bot className="h-7 w-7 text-primary-foreground" />
               </div>
               <h3 className="font-semibold text-lg">Chat with your inbox</h3>
               <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
@@ -141,7 +141,7 @@ export function ChatView() {
           ) : (
             chat.map((m) => (
               <div key={m.id} className={cn("flex gap-3 animate-fade-in", m.role === "user" && "flex-row-reverse")}>
-                <span className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-white", m.role === "user" ? "bg-muted-foreground" : "brand-gradient")}>
+                <span className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-primary-foreground", m.role === "user" ? "bg-muted-foreground" : "bg-primary")}>
                   {m.role === "user" ? <UserIcon className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </span>
                 <div className={cn("rounded-2xl px-4 py-2.5 text-sm max-w-[80%] leading-relaxed", m.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap" : "bg-muted rounded-tl-sm")}>
@@ -179,7 +179,7 @@ export function ChatView() {
           {chatBusy ? (
             <Button variant="outline" onClick={stop} className="h-11">Stop</Button>
           ) : (
-            <Button className="brand-gradient text-white h-11 px-4" onClick={() => send(input)} disabled={!input.trim()}>
+            <Button className="h-11 px-4" onClick={() => send(input)} disabled={!input.trim()}>
               <Send className="h-4 w-4" />
             </Button>
           )}
