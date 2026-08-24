@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { CATEGORY_MAP } from "@/lib/sample-data";
+import { CATEGORY_MAP } from "@/lib/defaults";
 import type { CategoryId } from "@/lib/types";
 
 export function CategoryBadge({

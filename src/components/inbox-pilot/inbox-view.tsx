@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Star,
   Search,
@@ -22,7 +21,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useEmails, fetchEmailBody, NotConnectedError } from "@/lib/use-emails";
-import { CATEGORIES, CATEGORY_MAP } from "@/lib/sample-data";
+import { CATEGORIES, CATEGORY_MAP } from "@/lib/defaults";
 import type { CategoryId, Email, ToneProfile } from "@/lib/types";
 import { CategoryBadge } from "./category-badge";
 import { TimeAgo } from "./time-ago";
@@ -84,7 +83,7 @@ function NotConnectedState() {
         replies, and answer questions about your email. Nothing is sent without
         your say-so.
       </p>
-      <Button className="mt-5 brand-gradient text-white" onClick={connectGmail}>
+      <Button className="mt-5" onClick={connectGmail}>
         <Plug className="h-4 w-4 mr-2" /> Connect Gmail
       </Button>
       <p className="text-[11px] text-muted-foreground mt-3 max-w-xs">
@@ -260,6 +259,23 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
     setTimeout(() => setCopied(false), 1500);
   };
 
+  // The draft is handed to Gmail's own compose window rather than sent from
+  // here. Sending is a separate act, and it should happen somewhere the user
+  // recognises as their mail client.
+  const openInGmail = () => {
+    if (!existingDraft) return;
+    const subject = email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`;
+    const url = new URL("https://mail.google.com/mail/");
+    url.search = new URLSearchParams({
+      view: "cm",
+      fs: "1",
+      to: email.from.email,
+      su: subject,
+      body: existingDraft,
+    }).toString();
+    window.open(url.toString(), "_blank", "noopener,noreferrer");
+  };
+
   return (
     <div className="border-t bg-card">
       {/* Compose textarea — normal, like Gmail */}
@@ -273,13 +289,8 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
 
         {/* Action bar */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            size="sm"
-            className="brand-gradient text-white"
-            onClick={() => toast({ title: "Ready to send", description: "Gmail send is wired up — copy for now." })}
-            disabled={!existingDraft}
-          >
-            <Send className="h-3.5 w-3.5 mr-1.5" /> Send
+          <Button size="sm" onClick={openInGmail} disabled={!existingDraft}>
+            <Send className="h-3.5 w-3.5 mr-1.5" /> Open in Gmail
           </Button>
           <Button
             size="sm"
@@ -328,7 +339,7 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
             />
             <Button
               size="sm"
-              className="w-full brand-gradient text-white"
+              className="w-full"
               disabled={loading || bodyLoading}
               onClick={() => generate(Boolean(existingDraft))}
             >
@@ -564,8 +575,8 @@ export function InboxView() {
           <EmailDetail email={selected} onClose={() => selectEmail(null)} />
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center p-8">
-            <div className="h-14 w-14 rounded-2xl brand-gradient flex items-center justify-center mb-4">
-              <Mail className="h-7 w-7 text-white" />
+            <div className="h-14 w-14 rounded-2xl bg-primary flex items-center justify-center mb-4">
+              <Mail className="h-7 w-7 text-primary-foreground" />
             </div>
             <h3 className="font-semibold text-lg">Select an email</h3>
             <p className="text-sm text-muted-foreground mt-1 max-w-sm">

@@ -5,10 +5,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const p = getProvider();
-  return NextResponse.json({
-    provider: p.provider,
-    model: p.model,
-    ready: p.ready,
-  });
+  const { host, model, ready } = getProvider();
+  return NextResponse.json({ host, model, ready });
 }

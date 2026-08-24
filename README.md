@@ -1,151 +1,149 @@
 # InboxPilot
 
-**Your AI email.** Log in, connect Gmail, and let AI organize your inbox, draft replies in your voice, and answer questions about your email — all in one open-source app.
+An assistant for the inbox you already have. It connects to your Gmail, sorts what
+arrives, drafts replies in the way you write, and answers questions about your mail.
 
-InboxPilot is a real email client (not an overlay): you sign up with email/password, connect your Gmail via official Google OAuth, and the app reads your actual inbox. No template data, no third-party inbox SaaS — your email flows through your own deployment.
+InboxPilot is not a service anyone operates. It is a Next.js app you deploy to your
+own account, pointed at your own database, your own Google OAuth client, and a model
+key you supply. There is no InboxPilot server between you and Google, because there
+is no InboxPilot server.
 
-> Free, open source (MIT), and self-hostable.
+MIT licensed.
 
----
+## What it does
 
-## ✨ Features
+**Sorts on arrival.** Every message lands in one of eight categories — To Respond,
+Awaiting Reply, FYI, Comment, Notification, Meeting Update, Actioned, Marketing. A
+heuristic pass runs instantly on fetch using Gmail's own labels and sender patterns,
+which costs nothing and is right most of the time; you can re-run a real model on any
+single message when it isn't, and override either by hand.
 
-- **Email login** — sign up and log in with email + password (NextAuth credentials).
-- **Connect Gmail** — official Google OAuth (`gmail.readonly` + `gmail.send`). Read your real inbox; disconnect any time.
-- **Smart inbox organizer** — every email auto-sorted into 8 categories (To Respond, FYI, Awaiting Reply, …). Override any category; re-run the AI on any email.
-- **Drafts in your voice** — a per-account tone profile shapes every draft. Refine before sending — the AI never sends for you.
-- **Chat with your inbox** — ask "who haven't I replied to?" in plain English. Streaming answers grounded in your real emails.
-- **Meeting summaries** — paste any transcript, get a summary + action items. No bot joins your call.
-- **Private by design** — runs on your own Vercel account with your own AI key.
-- **Bring your own AI** — Grok (xAI) out of the box, or the built-in fallback with zero configuration. All AI endpoints are auth-gated.
+**Drafts, but does not send.** Describe how you write once — tone, length, formality,
+phrases you use, phrases you never want to see — and replies come back in that
+register. The finished draft is handed to Gmail's own compose window, where you send
+it yourself. InboxPilot never sends mail, and does not ask for the permission that
+would let it.
 
----
+**Answers questions about your mail.** "Who am I still owing a reply?" gets answered
+from the messages actually in your inbox, with the sender and subject cited. The
+system prompt forbids inventing messages that aren't in the provided context, which
+helps and is not a guarantee.
 
-## 🚀 Quick start
+**Summarizes a transcript.** Paste what was said in a meeting, get the summary and
+the action items. Nothing joins your call.
+
+## What it costs you in trust
+
+Worth being explicit, because "AI email assistant" should make anyone read the fine
+print:
+
+- **Gmail is read with `gmail.readonly` and nothing more**, granted through Google's
+  own consent screen and revocable from your Google account at any time. There is no
+  write scope, so nothing here can send, delete, or alter your mail.
+- **Message bodies are fetched when you open a message**, not mirrored into the
+  database. What the database holds is your login, your OAuth tokens, and your tone
+  profile.
+- **Drafting a reply sends that message to whichever model endpoint you configured.**
+  That is the whole point, and it is also the part to think about. Pick a provider you
+  are willing to show your mail to — or point it at a model running on your own
+  machine and show it to nobody.
+
+## Running it
+
+Requires Node 20+ and a Postgres database. Bun is what the lockfile is written
+against; npm works.
 
 ```bash
 git clone https://github.com/JeffreyHamilton6399/inboxpilot.git
 cd inboxpilot
-bun install            # or: npm install
+bun install
 cp .env.example .env
 ```
 
-### Set up the database (Supabase — free, 2 min)
+`.env.example` documents every variable. The three you cannot skip are
+`DATABASE_URL`, `DIRECT_DATABASE_URL`, and `NEXTAUTH_SECRET`.
 
-SQLite doesn't work on Vercel, so we use **Supabase** (free hosted Postgres) for both local dev and production:
+### The database
 
-1. Create a free project at [supabase.com](https://supabase.com)
-2. In your Supabase project: **Settings → Database → Connection string**
-3. Copy the **Transaction pooler** URI (port 6543) → paste as `DATABASE_URL` in `.env`
-4. Copy the **Direct connection** URI (port 5432) → paste as `DIRECT_DATABASE_URL` in `.env`
-5. Create the tables:
-   ```bash
-   bun run db:push
-   ```
-
-### Finish your `.env`
+Vercel's filesystem is ephemeral, so SQLite is not an option. Supabase's free tier is
+what this is written against, though any Postgres works. From **Settings → Database →
+Connection string**, take the *Transaction pooler* URI (port 6543) as `DATABASE_URL`
+and the *Direct connection* URI (port 5432) as `DIRECT_DATABASE_URL`. Serverless
+functions connect through the pooler; Prisma needs the direct connection for
+migrations, which pgbouncer cannot proxy.
 
 ```bash
-# Generate a session secret:
-openssl rand -base64 32   # paste the output as NEXTAUTH_SECRET
-
-# Optionally add Grok (or use the built-in fallback with no key):
-# GROK_API_KEY=xai-...
+bun run db:push     # create the tables
+bun run dev         # http://localhost:3000
 ```
 
-### Run it
+### The model
+
+InboxPilot talks to any endpoint that speaks the OpenAI `/chat/completions` API. Set
+three variables and you are done:
 
 ```bash
-bun run dev
+AI_BASE_URL=https://api.groq.com/openai/v1
+AI_API_KEY=your-key
+AI_MODEL=llama-3.3-70b-versatile
 ```
 
-Open http://localhost:3000. Create an account, then connect Gmail (see below).
+Swap the base URL for `https://api.x.ai/v1`, `https://api.openai.com/v1`, or
+`http://localhost:11434/v1` for a local Ollama server, and set the model to match.
 
-> **Memory note:** the dev server is memory-hungry. On a machine with < 4 GB RAM, start it with:
-> `NODE_OPTIONS="--max-old-space-size=2048" bun run dev`
+There is deliberately no fallback provider. An earlier version of this app tried a
+second provider whenever the first one failed, which meant a typo in an API key
+produced quietly worse answers instead of an error — the harder of the two failures to
+debug. Now a missing or broken key returns a 503 that says so. The rest of the app —
+mail, categories, settings — works without a key at all.
 
----
+### Gmail
 
-## 🔑 Environment variables
+Without Google credentials the inbox shows a "Connect Gmail" prompt and nothing else.
+To enable it, in the [Google Cloud Console](https://console.cloud.google.com/):
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | Yes | Supabase **Transaction pooler** URI (port 6543, with `?pgbouncer=true`). Used at runtime. |
-| `DIRECT_DATABASE_URL` | Yes | Supabase **Direct connection** URI (port 5432). Used by Prisma for migrations. |
-| `NEXTAUTH_SECRET` | Yes | Session secret. Generate with `openssl rand -base64 32`. |
-| `NEXTAUTH_URL` | Yes | App URL (`http://localhost:3000` locally; your Vercel URL in prod). |
-| `GROK_API_KEY` | No | xAI Grok key. If set, Grok powers AI. If empty, built-in fallback. All AI endpoints require login. |
-| `GROK_MODEL` | No | Grok model id (default `grok-2-latest`). |
-| `GOOGLE_CLIENT_ID` | No | Google OAuth client id (enables Gmail connect). |
-| `GOOGLE_CLIENT_SECRET` | No | Google OAuth client secret. |
+1. Create a project, then **APIs & Services → OAuth consent screen** (External, with
+   your own address added as a test user).
+2. **Credentials → Create credentials → OAuth client ID → Web application**, with
+   `http://localhost:3000/api/gmail/callback` as an authorized redirect URI. Add your
+   deployment's `/api/gmail/callback` too when you deploy.
+3. Enable the **Gmail API** under **Library**.
+4. Put the client ID and secret in `.env` as `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET`, and restart.
 
----
+## Deploying
 
-## 📧 Gmail setup (to enable "Connect Gmail")
+Import the repo at [vercel.com/new](https://vercel.com/new) and copy in the same
+environment variables, with `NEXTAUTH_URL` set to the deployment's own URL and the
+Google redirect URI updated to match. Next.js is detected automatically. Run
+`bun run db:push` once against the production database.
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Create a project → **APIs & Services → OAuth consent screen** (External, add your email as a test user).
-3. **Credentials → Create credentials → OAuth client ID** → Web application.
-4. Add an **Authorized redirect URI**:
-   - Local: `http://localhost:3000/api/gmail/callback`
-   - Prod: `https://YOUR-VERCEL-URL/api/gmail/callback`
-5. Enable the **Gmail API** under APIs & Services → Library.
-6. Copy the Client ID + Secret into `.env.local` (or Vercel env vars):
-   ```
-   GOOGLE_CLIENT_ID=...
-   GOOGLE_CLIENT_SECRET=...
-   ```
-7. Restart the app. The Inbox and Settings pages now show "Connect Gmail".
+## How it is put together
 
-Without these, the app still works — AI chat runs generically, and you can paste meeting transcripts. The inbox just shows a "Connect Gmail" prompt.
+| | |
+|---|---|
+| `src/app/api/gmail/` | OAuth handshake, message list, single message fetch |
+| `src/app/api/ai/` | categorize, draft, chat, summarize, health |
+| `src/lib/ai.ts` | the only place that talks to a model |
+| `src/lib/gmail.ts` | token refresh and the Gmail REST calls |
+| `src/lib/defaults.ts` | the eight categories and the default tone profile |
+| `src/components/inbox-pilot/` | the app: inbox, ask, meetings, settings |
+| `src/components/ui/` | shadcn primitives, generated rather than hand-written |
 
----
+Next.js 16 App Router, Prisma against Postgres, NextAuth with a credentials provider,
+TanStack Query for server state and Zustand for local, Tailwind 4 with shadcn/ui.
 
-## ☁️ Deploy to Vercel
+## Not done yet
 
-1. The repo is already on GitHub (public): [JeffreyHamilton6399/inboxpilot](https://github.com/JeffreyHamilton6399/inboxpilot)
-2. Go to [vercel.com/new](https://vercel.com/new) and import the repo.
-3. Add these environment variables (from your Supabase project + `.env`):
-   - `DATABASE_URL` — Supabase pooler URI (port 6543, with `?pgbouncer=true`)
-   - `DIRECT_DATABASE_URL` — Supabase direct URI (port 5432)
-   - `NEXTAUTH_SECRET` — the secret you generated
-   - `NEXTAUTH_URL` — your Vercel URL (e.g. `https://inboxpilot.vercel.app`)
-   - `GROK_API_KEY` — your xAI key (optional)
-   - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — for Gmail (optional)
-4. Deploy. Vercel auto-detects Next.js. The Postgres schema is already set to `postgresql` — no code changes needed.
-5. After deploy, run `bun run db:push` once locally to ensure tables exist (or add a postbuild script).
+Outlook and plain IMAP are not supported — Gmail is the only provider. The inbox is
+fetched on demand and cached for fifteen seconds rather than pushed. Category
+overrides live in browser storage, so they do not follow you to another machine.
+There are no tests.
 
----
+## Contributing
 
-## 🧱 Tech stack
+Pull requests welcome. Fork it, self-host it, make it yours.
 
-- **Framework**: Next.js 16 (App Router) + TypeScript 5
-- **Auth**: NextAuth.js v4 (credentials provider, JWT sessions)
-- **Email**: Gmail API via Google OAuth (`google-auth-library`)
-- **Styling**: Tailwind CSS 4 + shadcn/ui (New York)
-- **State**: Zustand (persisted) + TanStack Query (server state)
-- **AI**: xAI Grok (OpenAI-compatible) with a z-ai-web-dev-sdk fallback
-- **DB**: Prisma + Supabase (Postgres — same for local dev and Vercel)
-- **Icons**: Lucide · **Animation**: Framer Motion · **Themes**: next-themes
+## License
 
----
-
-## 🗺️ Roadmap
-
-- [ ] Outlook (Microsoft Graph) integration
-- [ ] IMAP support for any provider
-- [ ] Send replies directly from InboxPilot (drafts currently copy-to-compose)
-- [ ] Real-time inbox polling / push
-- [ ] Calendar + scheduling links
-- [ ] PWA + mobile install
-- [ ] MCP server for use from other AI tools
-
----
-
-## 🤝 Contributing
-
-PRs welcome. Fork it, self-host it, make it yours.
-
-## 📄 License
-
-[MIT](./LICENSE) — free for personal and commercial use.
+[MIT](./LICENSE).

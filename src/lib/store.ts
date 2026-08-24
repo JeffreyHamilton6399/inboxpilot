@@ -1,9 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { DEFAULT_TONE } from "./sample-data";
+import { DEFAULT_TONE } from "./defaults";
 import type { CategoryId, ChatMessage, ToneProfile } from "./types";
 
 export type View = "inbox" | "chat" | "meetings" | "settings";

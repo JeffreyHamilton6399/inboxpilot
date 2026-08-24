@@ -7,10 +7,10 @@ const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
 
 export const GMAIL_CONFIGURED = Boolean(CLIENT_ID && CLIENT_SECRET);
 
-export const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.send",
-];
+// Read-only, and deliberately so: InboxPilot never sends on your behalf, it
+// hands finished drafts to Gmail's compose window. Asking for gmail.send would
+// be asking for a permission nothing here uses.
+export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 

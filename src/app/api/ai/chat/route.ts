@@ -1,4 +1,4 @@
-import { chatStream, type ChatMsg } from "@/lib/ai";
+import { chatStream, aiFailure, type ChatMsg } from "@/lib/ai";
 import { requireAuth } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -44,22 +44,31 @@ ${
       ...messages.map((m) => ({ role: m.role, content: m.content }) as ChatMsg),
     ];
 
+    // Pull the first chunk before returning, so a bad key or unreachable
+    // endpoint surfaces as a real status code instead of an error message
+    // rendered inside the assistant's reply bubble.
+    const chunks = chatStream(apiMessages, { temperature: 0.6, maxTokens: 900 });
+    const first = await chunks.next();
+    if (first.done) {
+      return new Response(JSON.stringify({ error: "The model returned an empty response." }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
         try {
-          for await (const chunk of chatStream(apiMessages, {
-            temperature: 0.6,
-            maxTokens: 900,
-          })) {
+          controller.enqueue(encoder.encode(first.value));
+          for await (const chunk of chunks) {
             controller.enqueue(encoder.encode(chunk));
           }
         } catch (err) {
-          controller.enqueue(
-            encoder.encode(
-              `\n\n[error: assistant unavailable — ${String(err)}]`
-            )
-          );
+          // The response has already begun, so the only channel left is the
+          // body itself.
+          console.error("[chat] stream interrupted:", err);
+          controller.enqueue(encoder.encode("\n\n[the connection to the model dropped]"));
         } finally {
           controller.close();
         }
@@ -75,8 +84,9 @@ ${
     });
   } catch (err) {
     console.error("[chat] error:", err);
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
+    const { status, message } = aiFailure(err);
+    return new Response(JSON.stringify({ error: message }), {
+      status,
       headers: { "content-type": "application/json" },
     });
   }

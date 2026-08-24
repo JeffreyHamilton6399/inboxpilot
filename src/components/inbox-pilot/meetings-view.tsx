@@ -88,8 +88,8 @@ export function MeetingsView() {
     <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
         <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-5">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Sparkles className="h-4 w-4 text-primary" />
-            Paste any meeting transcript — no bot joins your call. InboxPilot writes the summary and action items.
+            Paste a transcript and you get back a summary and the action items.
+            Nothing joins your call.
           </div>
 
           <Card>
@@ -113,7 +113,7 @@ export function MeetingsView() {
                   className="min-h-[160px] font-mono text-xs"
                 />
               </div>
-              <Button className="w-full brand-gradient text-white" disabled={loading || !transcript.trim()} onClick={summarize}>
+              <Button className="w-full" disabled={loading || !transcript.trim()} onClick={summarize}>
                 {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
                 {loading ? "Summarizing…" : "Summarize meeting"}
               </Button>

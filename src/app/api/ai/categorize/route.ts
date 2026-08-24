@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { chatJSON, type ChatMsg } from "@/lib/ai";
+import { chatJSON, aiFailure, type ChatMsg } from "@/lib/ai";
 import { requireAuth } from "@/lib/session";
-import { CATEGORIES } from "@/lib/sample-data";
+import { CATEGORIES } from "@/lib/defaults";
 import type { CategoryId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -66,9 +66,7 @@ ${(body ?? "").slice(0, 2000)}`,
     });
   } catch (err) {
     console.error("[categorize] error:", err);
-    return NextResponse.json(
-      { error: "Failed to categorize", detail: String(err) },
-      { status: 500 }
-    );
+    const { status, message } = aiFailure(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

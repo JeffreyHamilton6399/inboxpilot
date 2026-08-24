@@ -6,7 +6,6 @@ import {
   User,
   Save,
   RotateCcw,
-  Sparkles,
   ShieldCheck,
   Trash2,
   KeyRound,
@@ -23,13 +22,12 @@ import {
 import { useTheme } from "next-themes";
 import { setAccent } from "@/components/theme-provider";
 import { useStore } from "@/lib/store";
-import { CATEGORIES, DEFAULT_TONE } from "@/lib/sample-data";
+import { CATEGORIES, DEFAULT_TONE } from "@/lib/defaults";
 import type { ToneProfile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -53,7 +51,6 @@ function textToPhrases(text: string) {
 function ToneForm() {
   const tone = useStore((s) => s.tone);
   const setTone = useStore((s) => s.setTone);
-  const replaceTone = useStore((s) => s.replaceTone);
   const resetTone = useStore((s) => s.resetTone);
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -151,7 +148,7 @@ function ToneForm() {
         </div>
 
         <div className="flex items-center gap-2 pt-2">
-          <Button className="brand-gradient text-white" onClick={save} disabled={!dirty}>
+          <Button onClick={save} disabled={!dirty}>
             <Save className="h-4 w-4 mr-2" /> Save profile
           </Button>
           <Button variant="outline" onClick={reset}>
@@ -217,7 +214,7 @@ function AccountsCard() {
           <div className="rounded-lg border border-dashed p-4 text-center">
             <Plug2 className="h-6 w-6 mx-auto text-muted-foreground mb-2" />
             <p className="text-sm text-muted-foreground mb-3">No email accounts connected yet.</p>
-            <Button className="brand-gradient text-white" onClick={connect}>
+            <Button onClick={connect}>
               <Plug className="h-4 w-4 mr-2" /> Connect Gmail
             </Button>
             {!gmailConfigured && (
@@ -257,7 +254,7 @@ function CategoriesCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <Sparkles className="h-4 w-4 text-primary" /> Inbox categories
+          Inbox categories
         </CardTitle>
         <CardDescription>
           Every email is auto-sorted into one of these buckets. Override any email&apos;s category from the inbox — the AI respects your choice.

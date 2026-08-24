@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { chat, type ChatMsg } from "@/lib/ai";
+import { chat, aiFailure, type ChatMsg } from "@/lib/ai";
 import { requireAuth } from "@/lib/session";
 import type { ToneProfile } from "@/lib/types";
 
@@ -84,9 +84,7 @@ ${instruction ? `Extra instruction from the user: ${instruction}` : "Write the r
     return NextResponse.json({ draft: draft.trim() });
   } catch (err) {
     console.error("[draft] error:", err);
-    return NextResponse.json(
-      { error: "Failed to generate draft", detail: String(err) },
-      { status: 500 }
-    );
+    const { status, message } = aiFailure(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

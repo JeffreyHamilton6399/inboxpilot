@@ -280,16 +280,7 @@
   }
 }
 
-/* ---- Brand utilities ---- */
-.brand-gradient {
-  background-color: var(--primary);
-}
-.brand-gradient:hover {
-  filter: brightness(0.93);
-}
-.text-brand-gradient {
-  color: var(--primary);
-}
+/* Faint graph paper behind the landing hero. */
 .grid-bg {
   background-image:
     linear-gradient(to right, oklch(0.5 0.01 0 / 0.05) 1px, transparent 1px),
@@ -328,13 +319,8 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.85); }
-}
 .animate-fade-in { animation: fade-in 0.4s ease-out both; }
 .animate-fade-in-fast { animation: fade-in-fast 0.25s ease-out both; }
-.animate-pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
 
 /* ---- Typing cursor for streaming chat ---- */
 @keyframes blink {

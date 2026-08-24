@@ -136,7 +136,7 @@ export function AuthModal({
               </div>
               <Button
                 type="submit"
-                className="w-full brand-gradient text-white"
+                className="w-full"
                 disabled={loading}
               >
                 {loading ? (
@@ -197,7 +197,7 @@ export function AuthModal({
               </div>
               <Button
                 type="submit"
-                className="w-full brand-gradient text-white"
+                className="w-full"
                 disabled={loading}
               >
                 {loading ? (
