@@ -85,11 +85,19 @@ three variables and you are done:
 ```bash
 AI_BASE_URL=https://api.groq.com/openai/v1
 AI_API_KEY=your-key
-AI_MODEL=llama-3.3-70b-versatile
+AI_MODEL=openai/gpt-oss-120b
+AI_REASONING_EFFORT=low
 ```
 
 Swap the base URL for `https://api.x.ai/v1`, `https://api.openai.com/v1`, or
 `http://localhost:11434/v1` for a local Ollama server, and set the model to match.
+
+Two things worth knowing if you change the model. Reasoning models think before
+they answer and can spend a whole token budget doing it, returning an empty
+completion — `AI_REASONING_EFFORT` exists for those, and is only sent when you set
+it, because providers that have never heard of the parameter reject the request.
+And several open models emit their scratchpad as a `<think>` block in the reply;
+those are stripped on the way out, streaming included, so they never reach a draft.
 
 There is deliberately no fallback provider. An earlier version of this app tried a
 second provider whenever the first one failed, which meant a typo in an API key
