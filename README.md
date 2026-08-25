@@ -20,11 +20,15 @@ senders are obliged to set and what a person writing to you never does. You can
 re-run a real model on any single message where that guess is wrong, and override
 either by hand.
 
-**Drafts, but does not send.** Describe how you write once — tone, length, formality,
-phrases you use, phrases you never want to see — and replies come back in that
-register. The finished draft is handed to Gmail's own compose window, where you send
-it yourself. InboxPilot never sends mail, and does not ask for the permission that
-would let it.
+**Drafts, and sends when you say so.** Describe how you write once — tone, length,
+formality, phrases you use, phrases you never want to see — and replies come back in
+that register. The draft lands in a normal compose box you can edit.
+
+Send goes out through the Gmail API, in the right thread, from your own account. It
+takes two presses and the second one names the recipient, because a sent message
+cannot be recalled and the text may have been written by a model. Nothing is ever
+sent on a schedule, in the background, or without that press. "Open in Gmail" is
+still there for anything this box does not do, like attachments.
 
 **Answers questions about your mail.** "Who am I still owing a reply?" gets answered
 from the messages actually in your inbox, with the sender and subject cited. The
@@ -39,9 +43,11 @@ the action items. Nothing joins your call.
 Worth being explicit, because "AI email assistant" should make anyone read the fine
 print:
 
-- **Gmail is read with `gmail.readonly` and nothing more**, granted through Google's
-  own consent screen and revocable from your Google account at any time. There is no
-  write scope, so nothing here can send, delete, or alter your mail.
+- **Gmail is read with `gmail.readonly` and sent with `gmail.send`**, granted through
+  Google's own consent screen and revocable from your Google account at any time.
+  `gmail.send` can only add a message; it cannot read, delete, or alter anything, and
+  it is used at exactly one place in the code — the Send button. There is no scope
+  that would let this app modify or delete your mail, and it does not ask for one.
 - **Message bodies are fetched when you open a message**, not mirrored into the
   database. What the database holds is your login, your OAuth tokens, and your tone
   profile.

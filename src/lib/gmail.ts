@@ -7,10 +7,15 @@ const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
 
 export const GMAIL_CONFIGURED = Boolean(CLIENT_ID && CLIENT_SECRET);
 
-// Read-only, and deliberately so: InboxPilot never sends on your behalf, it
-// hands finished drafts to Gmail's compose window. Asking for gmail.send would
-// be asking for a permission nothing here uses.
-export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
+// Read plus send. The send scope is only ever used by an explicit press of the
+// Send button on a draft the user has read — nothing here sends on its own,
+// and there is no narrower Gmail scope for "reply within an existing thread".
+export const GMAIL_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  // Needed to send a reply from inside the app. Gmail has no narrower scope
+  // for "send only into a thread the user is already in".
+  "https://www.googleapis.com/auth/gmail.send",
+];
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -194,9 +199,17 @@ export class GmailApiError extends Error {
     this.name = "GmailApiError";
   }
 
-  /** The token is no longer good; the user has to grant consent again. */
+  /**
+   * The grant itself is the problem, and consenting again fixes it.
+   *
+   * 401 means the token is dead. A 403 saying "insufficient scopes" means the
+   * account was connected before the app asked for this permission — which is
+   * every account connected before sending existed, so it needs to be a
+   * reconnect prompt rather than a dead end.
+   */
   get needsReconnect(): boolean {
-    return this.status === 401;
+    if (this.status === 401) return true;
+    return this.status === 403 && /insufficient (authentication )?scope/i.test(this.detail);
   }
 
   /** Google's human-readable reason, if it gave one. */
@@ -314,4 +327,97 @@ export function extractText(payload: GmailPart | undefined): string {
 
   if (payload.body?.data) return decodeBase64Url(payload.body.data);
   return "";
+}
+
+// --- Sending ---
+
+/**
+ * Everything needed to make a reply land in the right conversation.
+ *
+ * Gmail threads on `threadId`, but every other mail client in the chain
+ * threads on `In-Reply-To` and `References`. Omitting those is how a reply
+ * shows up in Gmail as part of the thread and in the recipient's client as a
+ * brand new one, which is worse than either outcome on its own.
+ */
+export interface ReplyContext {
+  threadId: string;
+  /** The address to reply to, taken from Reply-To if present, else From. */
+  to: string;
+  subject: string;
+  /** The original's RFC Message-ID header, angle brackets included. */
+  inReplyTo: string;
+  references: string;
+}
+
+export async function getReplyContext(accessToken: string, id: string): Promise<ReplyContext> {
+  const res = await gmailFetch(
+    `${GMAIL_API}/users/me/messages/${id}?format=metadata` +
+      "&metadataHeaders=From&metadataHeaders=Reply-To&metadataHeaders=Subject" +
+      "&metadataHeaders=Message-ID&metadataHeaders=References",
+    accessToken
+  );
+  const msg = (await res.json()) as GmailMessageMeta & { threadId?: string };
+  const headers = msg.payload?.headers ?? [];
+  const get = (name: string) =>
+    headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
+
+  const messageId = get("Message-ID");
+  const priorRefs = get("References");
+  const subject = get("Subject");
+
+  return {
+    threadId: msg.threadId ?? id,
+    to: get("Reply-To") || get("From"),
+    subject: /^re:/i.test(subject.trim()) ? subject : `Re: ${subject}`,
+    inReplyTo: messageId,
+    // References is the whole chain, oldest first, with this message appended.
+    references: [priorRefs, messageId].filter(Boolean).join(" "),
+  };
+}
+
+/** RFC 2047 encoding, needed the moment a subject contains a non-ASCII character. */
+function encodeHeader(value: string): string {
+  if (!/[^\x00-\x7F]/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, "utf-8").toString("base64")}?=`;
+}
+
+function toBase64Url(input: Buffer): string {
+  return input.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Builds the RFC 5322 message Gmail wants, base64url encoded. */
+export function buildReplyMime(ctx: ReplyContext, body: string): string {
+  const headers = [
+    `To: ${ctx.to}`,
+    `Subject: ${encodeHeader(ctx.subject)}`,
+    ctx.inReplyTo ? `In-Reply-To: ${ctx.inReplyTo}` : "",
+    ctx.references ? `References: ${ctx.references}` : "",
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="UTF-8"',
+    // Base64 unconditionally: it sidesteps line-length limits and any
+    // character the transport would otherwise mangle.
+    "Content-Transfer-Encoding: base64",
+  ].filter(Boolean);
+
+  const encodedBody = Buffer.from(body, "utf-8").toString("base64").replace(/(.{76})/g, "$1\r\n");
+  return toBase64Url(Buffer.from(`${headers.join("\r\n")}\r\n\r\n${encodedBody}`, "utf-8"));
+}
+
+/** Sends a reply into an existing thread. Returns the new message's id. */
+export async function sendReply(
+  accessToken: string,
+  ctx: ReplyContext,
+  body: string
+): Promise<{ id: string; threadId: string }> {
+  const res = await fetch(`${GMAIL_API}/users/me/messages/send`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ raw: buildReplyMime(ctx, body), threadId: ctx.threadId }),
+  });
+  if (!res.ok) throw new GmailApiError(res.status, await res.text().catch(() => ""));
+  const sent = (await res.json()) as { id: string; threadId: string };
+  return { id: sent.id, threadId: sent.threadId };
 }
