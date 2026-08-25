@@ -35,9 +35,30 @@ export interface ProviderInfo {
   reasoningEffort: string | null;
 }
 
-const BASE_URL = (process.env.AI_BASE_URL?.trim() || "https://api.groq.com/openai/v1").replace(/\/+$/, "");
-const API_KEY = process.env.AI_API_KEY?.trim() ?? "";
-const MODEL = process.env.AI_MODEL?.trim() || "openai/gpt-oss-120b";
+/**
+ * Reads an environment variable the way a person pastes one.
+ *
+ * A dashboard field is not a shell, so `AI_API_KEY="gsk_..."` stores the
+ * quotes, and pasting a whole line stores the name too. Both produce a
+ * credential that is wrong by two characters and an error from the provider
+ * that says only "Invalid API Key". Neither is worth an afternoon.
+ */
+export function readEnv(name: string): string {
+  let v = process.env[name]?.trim() ?? "";
+  if (!v) return "";
+  // A pasted "NAME=value" line.
+  if (v.startsWith(`${name}=`)) v = v.slice(name.length + 1).trim();
+  // Matching surrounding quotes, single or double.
+  const first = v[0];
+  if (v.length >= 2 && (first === '"' || first === "'") && v[v.length - 1] === first) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
+}
+
+const BASE_URL = (readEnv("AI_BASE_URL") || "https://api.groq.com/openai/v1").replace(/\/+$/, "");
+const API_KEY = readEnv("AI_API_KEY");
+const MODEL = readEnv("AI_MODEL") || "openai/gpt-oss-120b";
 
 /**
  * Reasoning models spend their token budget thinking before they answer, and a
@@ -50,7 +71,7 @@ const MODEL = process.env.AI_MODEL?.trim() || "openai/gpt-oss-120b";
  * Providers that have never heard of the parameter reject the whole request,
  * which is handled by dropping it and retrying — see `post`.
  */
-const REASONING_EFFORT = process.env.AI_REASONING_EFFORT?.trim() ?? "low";
+const REASONING_EFFORT = process.env.AI_REASONING_EFFORT === undefined ? "low" : readEnv("AI_REASONING_EFFORT");
 
 /**
  * Set once a provider tells us it does not understand `reasoning_effort`, so
@@ -147,7 +168,16 @@ async function post(messages: ChatMsg[], opts: ChatOpts, stream: boolean): Promi
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new AIError(`${getProvider().host} returned ${res.status}: ${body.slice(0, 200)}`);
+    const host = getProvider().host;
+    if (res.status === 401 || res.status === 403) {
+      // The key reached the provider and the provider refused it. Say which
+      // variable is wrong, because "Invalid API Key" alone sends people to
+      // check the model, the base URL and their billing first.
+      throw new AIError(
+        `${host} rejected the API key (${res.status}). The value in AI_API_KEY is not valid for ${host} — check it is the right key for this provider and that it was pasted without surrounding quotes.`
+      );
+    }
+    throw new AIError(`${host} returned ${res.status}: ${body.slice(0, 200)}`);
   }
   return res;
 }
