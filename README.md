@@ -12,6 +12,13 @@ MIT licensed.
 
 ## What it does
 
+**Shows the conversation, not one message.** Opening a message opens the whole
+thread — every reply, yours included, oldest first with the newest one open and
+the rest folded. Your own messages are tinted, so you can see who said what
+without reading a name. A reply sent from here appears in the thread as soon as
+it goes, which sent mail otherwise does not, since it is not in the inbox
+listing.
+
 **Sorts on arrival.** Every message lands in one of eight categories — To Respond,
 Awaiting Reply, FYI, Comment, Notification, Meeting Update, Actioned, Marketing. The
 first pass costs nothing and makes no network call: it reads Gmail's own category
@@ -142,7 +149,7 @@ Google redirect URI updated to match. Next.js is detected automatically. Run
 
 | | |
 |---|---|
-| `src/app/api/gmail/` | OAuth handshake, message list, single message fetch |
+| `src/app/api/gmail/` | OAuth handshake, message list, single message, thread, send |
 | `src/app/api/ai/` | categorize, draft, chat, summarize, health |
 | `src/lib/ai.ts` | the only place that talks to a model |
 | `src/lib/gmail.ts` | token refresh and the Gmail REST calls |

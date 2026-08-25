@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/session";
-import { getGmailAuthForUser, listMessages, GmailApiError } from "@/lib/gmail";
+import { getGmailAuthForUser, listMessages, parseFrom, GmailApiError } from "@/lib/gmail";
 import type { Email } from "@/lib/types";
 import { categorize } from "@/lib/categorize";
 
@@ -13,6 +13,7 @@ interface GmailHeader {
 }
 interface GmailMessageMeta {
   id: string;
+  threadId?: string;
   internalDate?: string;
   snippet?: string;
   payload?: { headers?: GmailHeader[] };
@@ -43,14 +44,6 @@ function colorFor(seed: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-function parseFrom(fromHeader: string): { name: string; email: string } {
-  const m = fromHeader.match(/^(.*?)\s*<([^>]+)>$/);
-  if (m) {
-    return { name: m[1].replace(/"/g, "").trim() || m[2], email: m[2] };
-  }
-  const email = fromHeader.trim();
-  return { name: email.split("@")[0] || email, email };
-}
 
 // 15-second in-memory cache per user to avoid hammering Gmail on re-renders.
 const cache = new Map<string, { at: number; data: Email[] }>();
@@ -103,6 +96,7 @@ export async function GET() {
       });
       return {
         id: m.id,
+        threadId: m.threadId ?? m.id,
         from: { ...from, avatarColor: colorFor(from.email) },
         to: header(headers, "To"),
         subject,

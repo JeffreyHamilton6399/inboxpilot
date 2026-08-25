@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { Email } from "@/lib/types";
+import type { ThreadMessage } from "@/lib/types";
 
 /**
  * Why the inbox is empty, when it is not simply empty.
@@ -68,4 +69,26 @@ export async function fetchEmailBody(id: string): Promise<string> {
   if (!res.ok) throw new Error("Failed to load message");
   const data = await res.json();
   return data.body ?? "";
+}
+/**
+ * The conversation, not just the message that was clicked.
+ *
+ * Also how a reply sent from here becomes visible: sent mail is not in the
+ * inbox listing, so before this the reply you had just written disappeared the
+ * moment you sent it.
+ */
+export function useThread(threadId: string | undefined) {
+  return useQuery<{ messages: ThreadMessage[]; self: string }>({
+    queryKey: ["thread", threadId],
+    enabled: Boolean(threadId),
+    queryFn: async () => {
+      const res = await fetch(`/api/gmail/thread/${threadId}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}) as Record<string, string>);
+        throw new Error(body.error ?? "Failed to load the conversation");
+      }
+      return res.json();
+    },
+    staleTime: 15_000,
+  });
 }

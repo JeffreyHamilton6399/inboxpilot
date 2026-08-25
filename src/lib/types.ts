@@ -22,6 +22,8 @@ export interface Category {
 
 export interface Email {
   id: string;
+  /** The conversation this message belongs to. */
+  threadId: string;
   from: { name: string; email: string; avatarColor: string };
   to: string;
   subject: string;
@@ -75,4 +77,14 @@ export interface HealthResponse {
   host: string;
   model: string;
   ready: boolean;
+}
+
+export interface ThreadMessage {
+  id: string;
+  from: { name: string; email: string };
+  to: string;
+  receivedAt: string;
+  body: string;
+  /** True for messages the connected account sent, including replies from here. */
+  fromMe: boolean;
 }

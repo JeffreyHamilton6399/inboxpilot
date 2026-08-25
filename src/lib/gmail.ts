@@ -1,6 +1,7 @@
 import "server-only";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "@/lib/db";
+import type { ThreadMessage } from "@/lib/types";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim();
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
@@ -176,6 +177,7 @@ interface GmailPart {
 }
 
 interface GmailMessageMeta {
+  threadId?: string;
   id: string;
   internalDate?: string;
   snippet?: string;
@@ -420,4 +422,55 @@ export async function sendReply(
   if (!res.ok) throw new GmailApiError(res.status, await res.text().catch(() => ""));
   const sent = (await res.json()) as { id: string; threadId: string };
   return { id: sent.id, threadId: sent.threadId };
+}
+
+// --- Threads ---
+
+/** Splits `Sarah Chen <s@example.com>` into its parts. */
+export function parseFrom(header: string): { name: string; email: string } {
+  const m = header.match(/^(.*?)\s*<([^>]+)>$/);
+  if (m) return { name: m[1].replace(/"/g, "").trim() || m[2], email: m[2] };
+  const email = header.trim();
+  return { name: email.split("@")[0] || email, email };
+}
+
+
+/**
+ * The whole conversation, oldest first, including the user's own replies.
+ *
+ * Reading one message without the thread around it means reading half a
+ * conversation — and it meant a reply sent from this app vanished the moment it
+ * was sent, because sent mail is not in the inbox listing.
+ */
+export async function getThread(
+  accessToken: string,
+  threadId: string,
+  selfEmail: string
+): Promise<ThreadMessage[]> {
+  const res = await gmailFetch(`${GMAIL_API}/users/me/threads/${threadId}?format=full`, accessToken);
+  const thread = (await res.json()) as { messages?: (GmailMessageMeta & { labelIds?: string[] })[] };
+
+  const self = selfEmail.toLowerCase();
+
+  return (thread.messages ?? []).map((m) => {
+    const headers = m.payload?.headers ?? [];
+    const get = (name: string) =>
+      headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
+
+    const from = parseFrom(get("From"));
+    const dateStr = get("Date");
+
+    return {
+      id: m.id,
+      from,
+      to: get("To"),
+      receivedAt: dateStr
+        ? new Date(dateStr).toISOString()
+        : new Date(Number(m.internalDate) || Date.now()).toISOString(),
+      body: extractText(m.payload),
+      // The SENT label is the reliable signal; the address comparison catches
+      // mail sent from an alias that Gmail still files in the thread.
+      fromMe: (m.labelIds ?? []).includes("SENT") || from.email.toLowerCase() === self,
+    };
+  });
 }
