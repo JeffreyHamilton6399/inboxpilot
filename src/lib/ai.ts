@@ -121,6 +121,44 @@ export function getProvider(): ProviderInfo {
   };
 }
 
+/**
+ * Asks the provider whether the key is any good.
+ *
+ * `ready` only ever meant "a key is present", which is why a deployment with
+ * the wrong value in AI_API_KEY reported itself healthy while every AI feature
+ * returned 503. The answer is cached because it changes when someone edits an
+ * environment variable, not by the second.
+ */
+let probeCache: { at: number; accepted: boolean; detail: string } | null = null;
+const PROBE_TTL = 60_000;
+
+export async function probeKey(): Promise<{ accepted: boolean; detail: string }> {
+  if (!API_KEY) return { accepted: false, detail: "AI_API_KEY is not set" };
+  if (probeCache && Date.now() - probeCache.at < PROBE_TTL) {
+    return { accepted: probeCache.accepted, detail: probeCache.detail };
+  }
+
+  let accepted = false;
+  let detail = "";
+  try {
+    const res = await fetch(`${BASE_URL}/models`, {
+      headers: { Authorization: `Bearer ${API_KEY}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    accepted = res.ok;
+    detail = res.ok
+      ? "key accepted"
+      : res.status === 401 || res.status === 403
+        ? `${getProvider().host} rejected the key (${res.status}) — AI_API_KEY is wrong for this provider`
+        : `${getProvider().host} returned ${res.status}`;
+  } catch (err) {
+    detail = `could not reach ${getProvider().host}: ${String(err)}`;
+  }
+
+  probeCache = { at: Date.now(), accepted, detail };
+  return { accepted, detail };
+}
+
 async function post(messages: ChatMsg[], opts: ChatOpts, stream: boolean): Promise<Response> {
   if (!API_KEY) {
     throw new AIError("AI is not configured. Set AI_API_KEY (and optionally AI_BASE_URL and AI_MODEL).");
