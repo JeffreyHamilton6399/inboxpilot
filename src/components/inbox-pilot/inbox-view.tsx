@@ -156,7 +156,9 @@ function CategoryFilter({
   onChange: (c: CategoryId | "all") => void;
 }) {
   return (
-    <div className="flex gap-1.5 overflow-x-auto scroll-thin pb-1">
+    // min-w-0 is what stops the scrolling row from pushing itself out under
+    // the refresh button next to it, which clipped the last chip.
+    <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto scroll-thin pb-1">
       <FilterChip label="All" active={active === "all"} count={Object.values(counts).reduce((a, b) => a + b, 0)} onClick={() => onChange("all")} />
       {CATEGORIES.map((c) => (
         <FilterChip key={c.id} label={c.label} dot={c.dot} active={active === c.id} count={counts[c.id] ?? 0} onClick={() => onChange(c.id)} />
@@ -569,16 +571,19 @@ export function InboxView() {
     <div className="flex-1 flex min-h-0 overflow-hidden">
       <div className={cn("w-full md:w-[380px] shrink-0 border-r flex flex-col min-h-0", selected && "hidden md:flex")}>
         <div className="p-3 space-y-2 border-b shrink-0">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search inbox…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8 h-9" disabled={!gmailConnected} />
-          </div>
-          <div className="flex items-center justify-between">
-            <CategoryFilter active={filter} counts={counts} onChange={setFilter} />
-            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh">
-              <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+          {/* Refresh sits with the search box, not beside the filters: the
+              filter row scrolls sideways, and a button next to a scrolling row
+              means the last chip is always half under it. */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input placeholder="Search inbox…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8 h-9" disabled={!gmailConnected} />
+            </div>
+            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh">
+              <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
             </Button>
           </div>
+          <CategoryFilter active={filter} counts={counts} onChange={setFilter} />
         </div>
         <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
           {filtered.length === 0 ? (
