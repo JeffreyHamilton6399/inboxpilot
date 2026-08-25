@@ -3,10 +3,10 @@
 import * as React from "react";
 import { useSession, signOut } from "next-auth/react";
 import {
-  Inbox,
   MessagesSquare,
   CalendarClock,
   Settings as SettingsIcon,
+  ChevronLeft,
   Sun,
   Moon,
   LogOut,
@@ -16,7 +16,6 @@ import {
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
 import { useStore } from "@/lib/store";
-import { useEmails } from "@/lib/use-emails";
 import { Wordmark } from "./logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,17 +35,6 @@ import { ChatView } from "./chat-view";
 import { MeetingsView } from "./meetings-view";
 import { SettingsView } from "./settings-view";
 
-type ViewId = "inbox" | "chat" | "meetings" | "settings";
-
-/**
- * Settings is deliberately not here. Three destinations do not need a rail down
- * the side of the screen, and the fourth is something you visit twice — it
- * lives in the account menu, where that kind of thing belongs.
- */
-const NAV: { id: ViewId; label: string; icon: typeof Inbox }[] = [
-  { id: "inbox", label: "Inbox", icon: Inbox },
-  { id: "chat", label: "Ask", icon: MessagesSquare },
-];
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -143,52 +131,6 @@ function useToneSync() {
   }, [data, toneHydrated, replaceTone, setToneHydrated]);
 }
 
-function NavTabs({ toRespond }: { toRespond: number }) {
-  const activeView = useStore((s) => s.activeView);
-  const setView = useStore((s) => s.setView);
-
-  return (
-    <nav className="flex items-center gap-1">
-      {NAV.map((item) => {
-        const active = activeView === item.id;
-        return (
-          <button
-            key={item.id}
-            onClick={() => setView(item.id)}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-lg px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors",
-              active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-          >
-            <item.icon className="h-4 w-4 shrink-0" />
-            {/* The labels fold away on a narrow screen; the icons still read. */}
-            <span className="hidden sm:inline">{item.label}</span>
-            {item.id === "inbox" && toRespond > 0 && (
-              <span className="text-[11px] rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 tabular-nums">
-                {toRespond}
-              </span>
-            )}
-          </button>
-        );
-      })}
-
-      {/* Settings is reached from the account menu, so without this there is
-          nothing on screen saying where you are or how to get back. */}
-      {(activeView === "settings" || activeView === "meetings") && (
-        <span className="inline-flex items-center gap-2 rounded-lg bg-primary/10 px-2.5 sm:px-3 py-1.5 text-sm font-medium text-primary">
-          {activeView === "settings" ? (
-            <SettingsIcon className="h-4 w-4 shrink-0" />
-          ) : (
-            <CalendarClock className="h-4 w-4 shrink-0" />
-          )}
-          <span className="hidden sm:inline">{activeView === "settings" ? "Settings" : "Meeting notes"}</span>
-        </span>
-      )}
-    </nav>
-  );
-}
-
 function AccountMenu() {
   const { data: session } = useSession();
   const setView = useStore((s) => s.setView);
@@ -210,6 +152,9 @@ function AccountMenu() {
           <div className="text-[11px] text-muted-foreground truncate">{email}</div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setView("chat")}>
+          <MessagesSquare className="h-4 w-4 mr-2" /> Ask about your mail
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => setView("meetings")}>
           <CalendarClock className="h-4 w-4 mr-2" /> Meeting notes
         </DropdownMenuItem>
@@ -234,24 +179,35 @@ export function Dashboard() {
   useToneSync();
   const activeView = useStore((s) => s.activeView);
   const setView = useStore((s) => s.setView);
-  const { data: emails } = useEmails();
 
-  const toRespond = emails?.filter((e) => e.category === "to-respond").length ?? 0;
+  // The app is the inbox. Everything else is somewhere you go and come back
+  // from, so the only navigation on screen is a way back — and it appears
+  // only when there is somewhere to come back from.
+  const elsewhere = activeView !== "inbox";
+  const whereLabel =
+    activeView === "chat" ? "Ask" : activeView === "meetings" ? "Meeting notes" : "Settings";
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
-      <header className="h-14 shrink-0 flex items-center gap-2 sm:gap-4 px-3 sm:px-4 border-b bg-background/80 backdrop-blur z-20">
+      <header className="h-14 shrink-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 border-b bg-background/80 backdrop-blur z-20">
         <button
           onClick={() => setView("inbox")}
           className="shrink-0 transition-opacity hover:opacity-80"
-          aria-label="Go to inbox"
+          aria-label="Back to inbox"
         >
           <Wordmark />
         </button>
 
-        <div className="mx-auto sm:mx-0">
-          <NavTabs toRespond={toRespond} />
-        </div>
+        {elsewhere && (
+          <button
+            onClick={() => setView("inbox")}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4 shrink-0" />
+            <span className="font-medium text-foreground">{whereLabel}</span>
+            <span className="hidden sm:inline text-xs">· back to inbox</span>
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
           <ProviderBadge />
