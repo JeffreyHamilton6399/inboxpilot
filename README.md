@@ -13,10 +13,12 @@ MIT licensed.
 ## What it does
 
 **Sorts on arrival.** Every message lands in one of eight categories — To Respond,
-Awaiting Reply, FYI, Comment, Notification, Meeting Update, Actioned, Marketing. A
-heuristic pass runs instantly on fetch using Gmail's own labels and sender patterns,
-which costs nothing and is right most of the time; you can re-run a real model on any
-single message when it isn't, and override either by hand.
+Awaiting Reply, FYI, Comment, Notification, Meeting Update, Actioned, Marketing. The
+first pass costs nothing and makes no network call: it reads Gmail's own category
+labels, the sender's domain, and the `List-Unsubscribe` header, which is what bulk
+senders are obliged to set and what a person writing to you never does. You can
+re-run a real model on any single message where that guess is wrong, and override
+either by hand.
 
 **Drafts, but does not send.** Describe how you write once — tone, length, formality,
 phrases you use, phrases you never want to see — and replies come back in that
@@ -92,12 +94,16 @@ AI_REASONING_EFFORT=low
 Swap the base URL for `https://api.x.ai/v1`, `https://api.openai.com/v1`, or
 `http://localhost:11434/v1` for a local Ollama server, and set the model to match.
 
-Two things worth knowing if you change the model. Reasoning models think before
-they answer and can spend a whole token budget doing it, returning an empty
-completion — `AI_REASONING_EFFORT` exists for those, and is only sent when you set
-it, because providers that have never heard of the parameter reject the request.
-And several open models emit their scratchpad as a `<think>` block in the reply;
-those are stripped on the way out, streaming included, so they never reach a draft.
+`AI_REASONING_EFFORT` is only interesting if you change the model. Reasoning
+models think before they answer and can spend an entire token budget doing it,
+returning an empty completion; the default model is one of those, so the setting
+defaults to `low`. Providers that have never heard of the parameter reject the
+request, which is detected from their own error and retried without it. If a
+model still comes back empty because it thought past its budget, the request is
+retried once with four times the headroom before you are shown an error.
+
+Several open models also emit their scratchpad as a `<think>` block in the reply.
+Those are stripped on the way out, streaming included, so they never reach a draft.
 
 There is deliberately no fallback provider. An earlier version of this app tried a
 second provider whenever the first one failed, which meant a typo in an API key
@@ -146,7 +152,17 @@ TanStack Query for server state and Zustand for local, Tailwind 4 with shadcn/ui
 Outlook and plain IMAP are not supported — Gmail is the only provider. The inbox is
 fetched on demand and cached for fifteen seconds rather than pushed. Category
 overrides live in browser storage, so they do not follow you to another machine.
-There are no tests.
+Only one Gmail account per user is read, even though the schema allows several.
+
+## Tests
+
+```bash
+bun run test
+```
+
+They cover the parts where being wrong is expensive and the answer is checkable
+without a network: the OAuth state signing, the instant categorizer, and the
+Gmail body extraction. The React views have no tests.
 
 ## Contributing
 

@@ -28,6 +28,11 @@ export interface ProviderInfo {
   host: string;
   model: string;
   ready: boolean;
+  /**
+   * Reported because its absence is invisible from the outside and breaks
+   * reasoning models in a way that looks like a provider outage.
+   */
+  reasoningEffort: string | null;
 }
 
 const BASE_URL = (process.env.AI_BASE_URL?.trim() || "https://api.groq.com/openai/v1").replace(/\/+$/, "");
@@ -35,12 +40,24 @@ const API_KEY = process.env.AI_API_KEY?.trim() ?? "";
 const MODEL = process.env.AI_MODEL?.trim() || "openai/gpt-oss-120b";
 
 /**
- * Reasoning models spend their token budget thinking before they answer, and
- * a budget sized for an email reply is one they can exhaust entirely — leaving
- * an empty completion. Sent only when set, because providers that have never
- * heard of the parameter reject the request outright.
+ * Reasoning models spend their token budget thinking before they answer, and a
+ * budget sized for an email reply is one they can exhaust entirely — returning
+ * finish_reason "length" and an empty message.
+ *
+ * The default model is one of those, so this defaults to "low" rather than to
+ * nothing: shipping a reasoning model whose companion setting has to be
+ * discovered separately is how you get an app that fails on a fresh install.
+ * Providers that have never heard of the parameter reject the whole request,
+ * which is handled by dropping it and retrying — see `post`.
  */
-const REASONING_EFFORT = process.env.AI_REASONING_EFFORT?.trim() ?? "";
+const REASONING_EFFORT = process.env.AI_REASONING_EFFORT?.trim() ?? "low";
+
+/**
+ * Set once a provider tells us it does not understand `reasoning_effort`, so
+ * the cost of finding out is paid a single time per process rather than on
+ * every request.
+ */
+let reasoningRejected = false;
 
 /**
  * Some open models emit their scratchpad into the reply as a <think> block.
@@ -75,7 +92,12 @@ export function getProvider(): ProviderInfo {
   } catch {
     // Leave the raw string; an invalid URL is surfaced by the first request.
   }
-  return { host, model: MODEL, ready: Boolean(API_KEY) };
+  return {
+    host,
+    model: MODEL,
+    ready: Boolean(API_KEY),
+    reasoningEffort: REASONING_EFFORT && !reasoningRejected ? REASONING_EFFORT : null,
+  };
 }
 
 async function post(messages: ChatMsg[], opts: ChatOpts, stream: boolean): Promise<Response> {
@@ -83,26 +105,44 @@ async function post(messages: ChatMsg[], opts: ChatOpts, stream: boolean): Promi
     throw new AIError("AI is not configured. Set AI_API_KEY (and optionally AI_BASE_URL and AI_MODEL).");
   }
 
-  let res: Response;
-  try {
-    res = await fetch(`${BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.maxTokens ?? 1024,
-        stream,
-        ...(REASONING_EFFORT ? { reasoning_effort: REASONING_EFFORT } : {}),
-      }),
-      signal: opts.signal,
-    });
-  } catch (err) {
-    throw new AIError(`Could not reach ${getProvider().host}: ${String(err)}`);
+  const send = async (withReasoning: boolean): Promise<Response> => {
+    try {
+      return await fetch(`${BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages,
+          temperature: opts.temperature ?? 0.7,
+          max_tokens: opts.maxTokens ?? 1024,
+          stream,
+          ...(withReasoning ? { reasoning_effort: REASONING_EFFORT } : {}),
+        }),
+        signal: opts.signal,
+      });
+    } catch (err) {
+      throw new AIError(`Could not reach ${getProvider().host}: ${String(err)}`);
+    }
+  };
+
+  const useReasoning = Boolean(REASONING_EFFORT) && !reasoningRejected;
+  let res = await send(useReasoning);
+
+  // A provider that does not know the parameter says so with a 400. Drop it
+  // and try once more, rather than making the operator work out that their
+  // model and their config disagree.
+  if (!res.ok && res.status === 400 && useReasoning) {
+    const body = await res.text().catch(() => "");
+    if (/reasoning_effort|unknown|unrecognized|unsupported|not supported/i.test(body)) {
+      console.warn("[ai] provider rejected reasoning_effort; retrying without it");
+      reasoningRejected = true;
+      res = await send(false);
+    } else {
+      throw new AIError(`${getProvider().host} returned 400: ${body.slice(0, 200)}`);
+    }
   }
 
   if (!res.ok) {
@@ -112,19 +152,36 @@ async function post(messages: ChatMsg[], opts: ChatOpts, stream: boolean): Promi
   return res;
 }
 
+/** Ceiling for the one automatic retry when a model thinks past its budget. */
+const RETRY_TOKEN_CEILING = 4096;
+
 /** Non-streaming completion. Returns the full text. */
 export async function chat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string> {
-  const res = await post(messages, opts, false);
-  const data = await res.json();
-  const raw = data?.choices?.[0]?.message?.content;
-  const content = typeof raw === "string" ? stripThinking(raw) : "";
+  const attempt = async (o: ChatOpts) => {
+    const res = await post(messages, o, false);
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    return {
+      content: typeof raw === "string" ? stripThinking(raw) : "",
+      finish: data?.choices?.[0]?.finish_reason as string | undefined,
+    };
+  };
+
+  let { content, finish } = await attempt(opts);
+
+  // A reasoning model can spend the entire budget thinking and return nothing.
+  // One retry with real headroom is cheaper than handing the user an error for
+  // a request that was only ever a few hundred tokens short.
+  if (!content && finish === "length") {
+    const roomier = Math.min((opts.maxTokens ?? 1024) * 4, RETRY_TOKEN_CEILING);
+    console.warn(`[ai] ${MODEL} exhausted its budget thinking; retrying with max_tokens=${roomier}`);
+    ({ content, finish } = await attempt({ ...opts, maxTokens: roomier }));
+  }
+
   if (!content) {
-    // A reasoning model that hit max_tokens before it finished thinking lands
-    // here, which is worth saying out loud rather than reporting as "empty".
-    const reason = data?.choices?.[0]?.finish_reason;
     throw new AIError(
-      reason === "length"
-        ? `${MODEL} ran out of tokens before answering. Raise max_tokens, or set AI_REASONING_EFFORT=low.`
+      finish === "length"
+        ? `${MODEL} ran out of tokens before answering, even after a retry. Lower AI_REASONING_EFFORT, or choose a model that does not reason before replying.`
         : "The model returned an empty response."
     );
   }

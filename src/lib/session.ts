@@ -1,4 +1,5 @@
 import "server-only";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./auth";
 
@@ -33,5 +34,3 @@ export async function requireAuth(): Promise<
   return { ok: true, userId };
 }
 
-// NextResponse import for requireAuth
-import { NextResponse } from "next/server";

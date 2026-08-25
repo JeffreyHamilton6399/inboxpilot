@@ -52,7 +52,7 @@ ${(body ?? "").slice(0, 2000)}`,
 
     const result = await chatJSON<{ category?: string; reason?: string }>(
       [system, user],
-      { temperature: 0.2, maxTokens: 200 }
+      { temperature: 0.2, maxTokens: 512 }
     );
 
     const category = (result.category ?? "").trim().toLowerCase();

@@ -104,7 +104,13 @@ export async function getGmailAuthForUser(userId: string): Promise<{
   const expired =
     !account.expiryDate || account.expiryDate.getTime() < Date.now() + 60_000;
 
-  if (expired && account.refreshToken) {
+  if (expired) {
+    // An expired token with no refresh token is not recoverable: the user has
+    // to grant consent again. Returning it anyway just moves the failure to a
+    // confusing 401 from Gmail a moment later.
+    if (!account.refreshToken) return null;
+
+    let refreshed = false;
     try {
       const res = await fetch(GOOGLE_TOKEN_URL, {
         method: "POST",
@@ -122,6 +128,7 @@ export async function getGmailAuthForUser(userId: string): Promise<{
           expires_in?: number;
         };
         accessToken = tokens.access_token;
+        refreshed = true;
         await db.account.update({
           where: { id: account.id },
           data: {
@@ -131,10 +138,15 @@ export async function getGmailAuthForUser(userId: string): Promise<{
               : undefined,
           },
         });
+      } else {
+        // A revoked or expired refresh token comes back as 400 invalid_grant.
+        console.error("[gmail] refresh rejected:", res.status, await res.text().catch(() => ""));
       }
     } catch (err) {
       console.error("[gmail] refresh failed:", err);
     }
+
+    if (!refreshed) return null;
   }
 
   return { accessToken, email: account.email };
@@ -183,7 +195,9 @@ export async function listMessages(
     const results = await Promise.all(
       batch.map((id) =>
         fetch(
-          `${GMAIL_API}/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To&metadataHeaders=Date`,
+          // List-Unsubscribe is requested because its presence is the clearest
+          // signal that a message is bulk mail rather than a person writing.
+          `${GMAIL_API}/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To&metadataHeaders=Date&metadataHeaders=List-Unsubscribe`,
           { headers: { Authorization: `Bearer ${accessToken}` } }
         )
           .then((r) => (r.ok ? (r.json() as Promise<GmailMessageMeta>) : null))
@@ -213,27 +227,52 @@ function decodeBase64Url(data: string): string {
   return Buffer.from(padded, "base64").toString("utf-8");
 }
 
-interface GmailPart {
-  mimeType?: string;
-  body?: { data?: string };
-  parts?: GmailPart[];
+/**
+ * Reduces an HTML part to something readable.
+ *
+ * Marketing mail is often HTML-only, and handing a wall of tables and inline
+ * CSS to a model wastes the context window and produces worse drafts. This is
+ * not sanitisation — the result is rendered as text, never as markup.
+ */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-function extractText(payload: GmailPart | undefined): string {
+export function extractText(payload: GmailPart | undefined): string {
   if (!payload) return "";
+
   if (payload.mimeType === "text/plain" && payload.body?.data) {
     return decodeBase64Url(payload.body.data);
   }
+  if (payload.mimeType === "text/html" && payload.body?.data) {
+    return htmlToText(decodeBase64Url(payload.body.data));
+  }
+
   if (payload.parts) {
+    // Prefer plain text wherever it exists in this level of the tree.
     const plain = payload.parts.find((p) => p.mimeType === "text/plain");
     if (plain?.body?.data) return decodeBase64Url(plain.body.data);
     const html = payload.parts.find((p) => p.mimeType === "text/html");
-    if (html?.body?.data) return decodeBase64Url(html.body.data);
+    if (html?.body?.data) return htmlToText(decodeBase64Url(html.body.data));
     for (const p of payload.parts) {
       const t = extractText(p);
       if (t) return t;
     }
   }
+
   if (payload.body?.data) return decodeBase64Url(payload.body.data);
   return "";
 }
