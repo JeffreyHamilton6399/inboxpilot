@@ -9,7 +9,6 @@ import {
   Settings as SettingsIcon,
   Sun,
   Moon,
-  Menu,
   LogOut,
   Github,
   CircleDot,
@@ -21,13 +20,6 @@ import { useEmails } from "@/lib/use-emails";
 import { Wordmark } from "./logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,11 +36,17 @@ import { ChatView } from "./chat-view";
 import { MeetingsView } from "./meetings-view";
 import { SettingsView } from "./settings-view";
 
-const NAV: { id: "inbox" | "chat" | "meetings" | "settings"; label: string; icon: typeof Inbox }[] = [
+type ViewId = "inbox" | "chat" | "meetings" | "settings";
+
+/**
+ * Settings is deliberately not here. Three destinations do not need a rail down
+ * the side of the screen, and the fourth is something you visit twice — it
+ * lives in the account menu, where that kind of thing belongs.
+ */
+const NAV: { id: ViewId; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "chat", label: "Ask", icon: MessagesSquare },
   { id: "meetings", label: "Meetings", icon: CalendarClock },
-  { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
 function ThemeToggle() {
@@ -81,7 +79,7 @@ function ProviderBadge() {
   return (
     <Badge
       variant="outline"
-      className={cn("gap-1.5 font-normal", !data.ready && "text-muted-foreground")}
+      className={cn("hidden lg:inline-flex gap-1.5 font-normal", !data.ready && "text-muted-foreground")}
       title={data.ready ? `Model served by ${data.host}` : "Set AI_API_KEY to enable AI features"}
     >
       <CircleDot className={cn("h-3 w-3", data.ready ? "text-emerald-500" : "text-muted-foreground")} />
@@ -119,161 +117,122 @@ function useToneSync() {
   }, [data, toneHydrated, replaceTone, setToneHydrated]);
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const { data: session } = useSession();
+function NavTabs({ toRespond }: { toRespond: number }) {
   const activeView = useStore((s) => s.activeView);
   const setView = useStore((s) => s.setView);
-  const { data: emails } = useEmails();
-
-  const drafts = useStore((s) => s.drafts);
-  const toRespond = emails?.filter((e) => e.category === "to-respond").length ?? 0;
-  const unread = emails?.filter((e) => e.unread).length ?? 0;
-  const draftCount = Object.keys(drafts).length;
-
-  const email = session?.user?.email ?? "";
-  const initials = email
-    ? email.split("@")[0].slice(0, 2).toUpperCase()
-    : "?";
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="h-14 flex items-center px-4 border-b">
-        <Wordmark />
-      </div>
-      <nav className="flex-1 p-3 space-y-1">
-        {NAV.map((item) => {
-          const active = activeView === item.id;
-          const count = item.id === "inbox" ? toRespond : undefined;
-          return (
-            <button
-              key={item.id}
-              onClick={() => { setView(item.id); onNavigate?.(); }}
-              className={cn(
-                "w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-            >
-              <item.icon className="h-4 w-4" />
-              <span className="flex-1 text-left">{item.label}</span>
-              {count ? (
-                <span className="text-[11px] rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 tabular-nums">{count}</span>
-              ) : null}
-            </button>
-          );
-        })}
-      </nav>
+    <nav className="flex items-center gap-1">
+      {NAV.map((item) => {
+        const active = activeView === item.id;
+        return (
+          <button
+            key={item.id}
+            onClick={() => setView(item.id)}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-lg px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors",
+              active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
+          >
+            <item.icon className="h-4 w-4 shrink-0" />
+            {/* The labels fold away on a narrow screen; the icons still read. */}
+            <span className="hidden sm:inline">{item.label}</span>
+            {item.id === "inbox" && toRespond > 0 && (
+              <span className="text-[11px] rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 tabular-nums">
+                {toRespond}
+              </span>
+            )}
+          </button>
+        );
+      })}
 
-      <div className="p-3 space-y-3 border-t">
-        <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Unread</span>
-            <span className="font-semibold tabular-nums">{unread}</span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Needs a reply</span>
-            <span className="font-semibold tabular-nums">{toRespond}</span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Drafts waiting</span>
-            <span className="font-semibold tabular-nums">{draftCount}</span>
-          </div>
-        </div>
-        <ProviderBadge />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="w-full flex items-center gap-2 rounded-lg p-2 hover:bg-muted transition-colors text-left">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="bg-primary/10 text-primary text-xs">{initials}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium truncate">{session?.user?.name || email}</div>
-                <div className="text-[11px] text-muted-foreground truncate">{email}</div>
-              </div>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel className="truncate">{email}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/" })} className="text-rose-600 focus:text-rose-700">
-              <LogOut className="h-4 w-4 mr-2" /> Log out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
+      {/* Settings is reached from the account menu, so without this there is
+          nothing on screen saying where you are or how to get back. */}
+      {activeView === "settings" && (
+        <span className="inline-flex items-center gap-2 rounded-lg bg-primary/10 px-2.5 sm:px-3 py-1.5 text-sm font-medium text-primary">
+          <SettingsIcon className="h-4 w-4 shrink-0" />
+          <span className="hidden sm:inline">Settings</span>
+        </span>
+      )}
+    </nav>
+  );
+}
+
+function AccountMenu() {
+  const { data: session } = useSession();
+  const setView = useStore((s) => s.setView);
+  const email = session?.user?.email ?? "";
+  const initials = email ? email.split("@")[0].slice(0, 2).toUpperCase() : "?";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="rounded-full transition-opacity hover:opacity-80" aria-label="Account">
+          <Avatar className="h-8 w-8">
+            <AvatarFallback className="bg-primary/10 text-primary text-xs">{initials}</AvatarFallback>
+          </Avatar>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel className="truncate font-normal">
+          <div className="text-xs font-medium truncate">{session?.user?.name || email}</div>
+          <div className="text-[11px] text-muted-foreground truncate">{email}</div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setView("settings")}>
+          <SettingsIcon className="h-4 w-4 mr-2" /> Settings
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <a href="https://github.com/JeffreyHamilton6399/inboxpilot" target="_blank" rel="noreferrer">
+            <Github className="h-4 w-4 mr-2" /> Source
+          </a>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/" })} className="text-rose-600 focus:text-rose-700">
+          <LogOut className="h-4 w-4 mr-2" /> Log out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 export function Dashboard() {
   useToneSync();
   const activeView = useStore((s) => s.activeView);
-  const [mobileOpen, setMobileOpen] = React.useState(false);
+  const setView = useStore((s) => s.setView);
   const { data: emails } = useEmails();
 
   const toRespond = emails?.filter((e) => e.category === "to-respond").length ?? 0;
-  const total = emails?.length ?? 0;
-
-  const titles: Record<string, { title: string; sub: string }> = {
-    inbox: { title: "Inbox", sub: total ? `${total} emails · ${toRespond} need a reply` : "Connect Gmail to load your email" },
-    chat: { title: "Ask", sub: "Questions answered from the mail in your inbox" },
-    meetings: { title: "Meetings", sub: "Paste a transcript, get a summary" },
-    settings: { title: "Settings", sub: "Tone profile, categories & accounts" },
-  };
-  const t = titles[activeView];
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
-      {/* Mobile top bar */}
-      <div className="md:hidden flex items-center gap-2 h-14 px-3 border-b bg-background shrink-0 z-30">
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Open menu">
-              <Menu className="h-5 w-5" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-72">
-            <SheetHeader className="sr-only">
-              <SheetTitle>Navigation</SheetTitle>
-            </SheetHeader>
-            <SidebarContent onNavigate={() => setMobileOpen(false)} />
-          </SheetContent>
-        </Sheet>
-        <Wordmark />
-      </div>
+      <header className="h-14 shrink-0 flex items-center gap-2 sm:gap-4 px-3 sm:px-4 border-b bg-background/80 backdrop-blur z-20">
+        <button
+          onClick={() => setView("inbox")}
+          className="shrink-0 transition-opacity hover:opacity-80"
+          aria-label="Go to inbox"
+        >
+          <Wordmark />
+        </button>
 
-      <div className="flex-1 flex min-h-0">
-        <aside className="hidden md:flex w-64 shrink-0 border-r bg-sidebar/50 flex-col">
-          <SidebarContent />
-        </aside>
-
-        <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <header className="hidden md:flex h-14 items-center gap-4 px-6 border-b bg-background/80 backdrop-blur shrink-0 z-20">
-            <div className="min-w-0">
-              <h1 className="font-semibold leading-tight truncate">{t.title}</h1>
-              <p className="text-xs text-muted-foreground truncate">{t.sub}</p>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <a href="https://github.com/JeffreyHamilton6399/inboxpilot" target="_blank" rel="noreferrer">
-                  <Github className="h-4 w-4 mr-1.5" /> Source
-                </a>
-              </Button>
-              <Button size="sm" onClick={() => useStore.getState().setView("chat")}>
-                <MessagesSquare className="h-4 w-4 mr-1.5" /> Ask about your mail
-              </Button>
-              <ThemeToggle />
-            </div>
-          </header>
-
-          <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {activeView === "inbox" && <InboxView />}
-            {activeView === "chat" && <ChatView />}
-            {activeView === "meetings" && <MeetingsView />}
-            {activeView === "settings" && <SettingsView />}
-          </main>
+        <div className="mx-auto sm:mx-0">
+          <NavTabs toRespond={toRespond} />
         </div>
-      </div>
+
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <ProviderBadge />
+          <ThemeToggle />
+          <AccountMenu />
+        </div>
+      </header>
+
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {activeView === "inbox" && <InboxView />}
+        {activeView === "chat" && <ChatView />}
+        {activeView === "meetings" && <MeetingsView />}
+        {activeView === "settings" && <SettingsView />}
+      </main>
     </div>
   );
 }
-
