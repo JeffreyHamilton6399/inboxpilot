@@ -27,6 +27,12 @@ senders are obliged to set and what a person writing to you never does. You can
 re-run a real model on any single message where that guess is wrong, and override
 either by hand.
 
+**Sorts on demand, too.** The instant pass is free and usually right. When it is
+not, **Sort with AI** re-reads the whole inbox and re-tags it in batches of
+twenty-five — one model call per batch, not one per message. Sort the list by
+newest, oldest, unread, needs-a-reply or sender, and **See all** clears the
+filter from a button that is always on screen.
+
 **Drafts, and sends when you say so.** Describe how you write once — tone, length,
 formality, phrases you use, phrases you never want to see — and replies come back in
 that register. The draft lands in a normal compose box you can edit.
