@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/session";
-import { getGmailAuthForUser, listMessages } from "@/lib/gmail";
+import { getGmailAuthForUser, listMessages, GmailApiError } from "@/lib/gmail";
 import type { Email } from "@/lib/types";
 import { categorize } from "@/lib/categorize";
 
@@ -120,14 +120,32 @@ export async function GET() {
     return NextResponse.json({ emails });
   } catch (err) {
     console.error("[gmail/messages] error:", err);
-    // If the token is bad, surface a 404 so the client shows "connect gmail".
-    const msg = String(err);
-    if (msg.includes("401") || msg.includes("403")) {
+
+    if (err instanceof GmailApiError) {
+      // Only a 401 means the grant is gone and consent has to be given again.
+      // A 403 is usually the project, not the user — most often the Gmail API
+      // never being enabled — and telling someone to reconnect their already
+      // connected account does not fix that.
+      if (err.needsReconnect) {
+        return NextResponse.json(
+          {
+            error: "Google has stopped accepting this connection. Reconnect Gmail to continue.",
+            code: "GMAIL_NEEDS_RECONNECT",
+            detail: err.reason,
+          },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
-        { error: "Gmail not connected", code: "GMAIL_NOT_CONNECTED" },
-        { status: 404 }
+        {
+          error: "Gmail refused the request.",
+          code: "GMAIL_API_ERROR",
+          detail: err.reason,
+        },
+        { status: 502 }
       );
     }
+
     return NextResponse.json(
       { error: "Failed to fetch Gmail messages" },
       { status: 500 }

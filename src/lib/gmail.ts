@@ -99,17 +99,17 @@ export async function getGmailAuthForUser(userId: string): Promise<{
   });
   if (!account) return null;
 
-  // Refresh if expired (or about to expire).
+  // Refresh only when the stored expiry says the token is actually done.
+  //
+  // A missing expiryDate means we were never told when it expires, not that it
+  // expired — Google omits expires_in often enough that treating null as
+  // expired reported perfectly good connections as missing.
   let accessToken = account.accessToken;
-  const expired =
-    !account.expiryDate || account.expiryDate.getTime() < Date.now() + 60_000;
+  const expired = account.expiryDate
+    ? account.expiryDate.getTime() < Date.now() + 60_000
+    : false;
 
-  if (expired) {
-    // An expired token with no refresh token is not recoverable: the user has
-    // to grant consent again. Returning it anyway just moves the failure to a
-    // confusing 401 from Gmail a moment later.
-    if (!account.refreshToken) return null;
-
+  if (expired && account.refreshToken) {
     let refreshed = false;
     try {
       const res = await fetch(GOOGLE_TOKEN_URL, {
@@ -146,7 +146,10 @@ export async function getGmailAuthForUser(userId: string): Promise<{
       console.error("[gmail] refresh failed:", err);
     }
 
-    if (!refreshed) return null;
+    // A failed refresh is not proof of anything on its own — the network may
+    // simply have been down. Hand back what we have and let Gmail be the judge;
+    // its 401 is what the caller turns into "reconnect", with a reason.
+    void refreshed;
   }
 
   return { accessToken, email: account.email };
@@ -175,15 +178,54 @@ interface GmailMessageMeta {
   labelIds?: string[];
 }
 
+/**
+ * A failure from Gmail itself, carrying the status and Google's own words.
+ *
+ * Everything used to be flattened into a string and matched with
+ * `msg.includes("403")`, so "the Gmail API is not enabled on this project"
+ * and "you have never connected an account" produced the same screen.
+ */
+export class GmailApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly detail: string
+  ) {
+    super(`Gmail returned ${status}: ${detail.slice(0, 300)}`);
+    this.name = "GmailApiError";
+  }
+
+  /** The token is no longer good; the user has to grant consent again. */
+  get needsReconnect(): boolean {
+    return this.status === 401;
+  }
+
+  /** Google's human-readable reason, if it gave one. */
+  get reason(): string {
+    try {
+      const parsed = JSON.parse(this.detail);
+      return parsed?.error?.message ?? parsed?.error_description ?? this.detail;
+    } catch {
+      return this.detail;
+    }
+  }
+}
+
+async function gmailFetch(url: string, accessToken: string): Promise<Response> {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    throw new GmailApiError(res.status, await res.text().catch(() => ""));
+  }
+  return res;
+}
+
 export async function listMessages(
   accessToken: string,
   maxResults = 40
 ): Promise<GmailMessageMeta[]> {
-  const listRes = await fetch(
+  const listRes = await gmailFetch(
     `${GMAIL_API}/users/me/messages?maxResults=${maxResults}&q=in:inbox`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
+    accessToken
   );
-  if (!listRes.ok) throw new Error(`Gmail list failed: ${listRes.status}`);
   const listData = (await listRes.json()) as { messages?: { id: string }[] };
   const ids = (listData.messages ?? []).map((m) => m.id).filter(Boolean);
   if (ids.length === 0) return [];
@@ -213,10 +255,7 @@ export async function getMessageBody(
   accessToken: string,
   id: string
 ): Promise<string> {
-  const res = await fetch(`${GMAIL_API}/users/me/messages/${id}?format=full`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) throw new Error(`Gmail get failed: ${res.status}`);
+  const res = await gmailFetch(`${GMAIL_API}/users/me/messages/${id}?format=full`, accessToken);
   const msg = (await res.json()) as GmailMessageMeta;
   return extractText(msg.payload);
 }
