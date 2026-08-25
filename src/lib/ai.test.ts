@@ -245,3 +245,44 @@ describe("a key the provider refuses", () => {
     await expect(chat([{ role: "user", content: "hi" }])).rejects.toThrow(/rejected the API key \(403\)/);
   });
 });
+
+describe("the key probe", () => {
+  it("reports a working key as accepted", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [] }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { probeKey } = await loadAi();
+    await expect(probeKey()).resolves.toMatchObject({ accepted: true });
+    expect(String((fetchMock.mock.calls as unknown as string[][])[0][0])).toBe("https://api.groq.com/openai/v1/models");
+  });
+
+  it("names AI_API_KEY when the provider rejects it", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ error: "Invalid API Key" }, 401));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { probeKey } = await loadAi();
+    const r = await probeKey();
+    expect(r.accepted).toBe(false);
+    expect(r.detail).toMatch(/AI_API_KEY is wrong/);
+  });
+
+  it("does not call out at all when no key is set", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { probeKey } = await loadAi({ AI_API_KEY: "" });
+    await expect(probeKey()).resolves.toMatchObject({ accepted: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("caches, so repeated checks do not hammer the provider", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [] }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { probeKey } = await loadAi();
+    await probeKey();
+    await probeKey();
+    await probeKey();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
