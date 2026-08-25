@@ -18,10 +18,12 @@ import {
   X,
   Inbox as InboxIcon,
   Plug,
+  MoreHorizontal,
   AlertCircle,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useEmails, fetchEmailBody, InboxError } from "@/lib/use-emails";
+import { splitQuotedReply, unwrap } from "@/lib/message-format";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/defaults";
 import type { CategoryId, Email, ToneProfile } from "@/lib/types";
 import { CategoryBadge } from "./category-badge";
@@ -245,15 +247,23 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
   const setDraft = useStore((s) => s.setDraft);
   const { toast } = useToast();
   const [loading, setLoading] = React.useState(false);
-  const [instruction, setInstruction] = React.useState("");
   const [copied, setCopied] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const [confirmSend, setConfirmSend] = React.useState(false);
-  const [showAI, setShowAI] = React.useState(false);
 
   const existingDraft = useStore((s) => s.drafts[email.id]);
 
-  const generate = async (regenerate = false) => {
+  /**
+   * One button, two jobs, decided by whether the box has anything in it.
+   *
+   * There used to be a panel with its own text field for instructions, which
+   * meant two boxes to look at and a decision to make before anything happened.
+   * An empty box means "write one"; a box with words in it means "improve
+   * these" — and the words in the box are what gets improved, rather than
+   * being thrown away and regenerated from the original mail.
+   */
+  const assist = async () => {
+    const current = existingDraft?.trim() ?? "";
     setLoading(true);
     try {
       const res = await fetch("/api/ai/draft", {
@@ -262,7 +272,7 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
         body: JSON.stringify({
           email: { from: email.from.name, subject: email.subject, body: email.body, preview: email.preview },
           tone: tone as ToneProfile,
-          instruction: instruction || undefined,
+          draft: current || undefined,
         }),
       });
       if (res.status === 401) {
@@ -275,11 +285,9 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
       }
       const data = await res.json();
       setDraft(email.id, data.draft);
-      toast({ title: regenerate ? "Draft regenerated" : "Draft ready" });
-      setShowAI(false);
-      setInstruction("");
+      toast({ title: current ? "Draft improved" : "Draft ready" });
     } catch (e) {
-      toast({ title: "Couldn't generate draft", description: String(e), variant: "destructive" });
+      toast({ title: "Couldn't write the draft", description: String(e), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -384,11 +392,20 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
           <Button
             size="sm"
             variant="outline"
-            onClick={() => setShowAI((s) => !s)}
+            onClick={assist}
             disabled={bodyLoading || loading}
+            title={
+              existingDraft?.trim()
+                ? "Rewrite what is in the box, keeping what it says"
+                : "Write a reply to this message"
+            }
           >
-            {loading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
-            {loading ? "Writing…" : "AI"}
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            {loading ? "Writing…" : existingDraft?.trim() ? "Improve" : "Write with AI"}
           </Button>
           {existingDraft && (
             <>
@@ -406,41 +423,49 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
           )}
         </div>
 
-        {/* AI panel — only shows when you click "AI" */}
-        {showAI && (
-          <div className="rounded-lg border bg-muted/30 p-3 space-y-2 animate-fade-in-fast">
-            <div className="flex items-center gap-2">
-              <Wand2 className="h-3.5 w-3.5 text-primary" />
-              <span className="text-xs font-medium">AI assistant</span>
-              {!tone.name && (
-                <span className="text-[11px] text-amber-600">
-                  Set your name in Settings for better drafts
-                </span>
-              )}
-              <Button size="sm" variant="ghost" className="ml-auto h-6 text-xs" onClick={() => setShowAI(false)}>
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-            <Input
-              placeholder={existingDraft ? "Refine: 'make it shorter', 'more formal'…" : "Instruction: 'say I'm available Thursday'"}
-              value={instruction}
-              onChange={(e) => setInstruction(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !bodyLoading) generate(Boolean(existingDraft)); }}
-              disabled={bodyLoading}
-              className="h-8"
-            />
-            <Button
-              size="sm"
-              className="w-full"
-              disabled={loading || bodyLoading}
-              onClick={() => generate(Boolean(existingDraft))}
-            >
-              {loading ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-2" />}
-              {loading ? "Writing…" : existingDraft ? "Refine draft" : "Generate draft"}
-            </Button>
-          </div>
-        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A mail body, rendered so it can be read.
+ *
+ * Three things were wrong with printing it raw: plain-text mail is hard-wrapped
+ * at a fixed column and went ragged in a wide pane, long URLs pushed the pane
+ * sideways, and the quoted history — usually longer than the message — sat
+ * underneath every reply in full.
+ */
+function MessageBody({ raw }: { raw: string }) {
+  const [showQuoted, setShowQuoted] = React.useState(false);
+  const { body, quoted } = React.useMemo(() => splitQuotedReply(raw ?? ""), [raw]);
+  const text = React.useMemo(() => unwrap(body), [body]);
+
+  if (!raw?.trim()) {
+    return <span className="text-sm text-muted-foreground italic">(empty message)</span>;
+  }
+
+  return (
+    <div className="text-sm leading-relaxed text-foreground/90">
+      <div className="max-w-[68ch] whitespace-pre-wrap break-words">{text}</div>
+
+      {quoted && (
+        <div className="mt-4">
+          <button
+            onClick={() => setShowQuoted((s) => !s)}
+            className="inline-flex items-center gap-1.5 rounded border bg-muted/50 px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-expanded={showQuoted}
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+            {showQuoted ? "Hide quoted text" : "Show quoted text"}
+          </button>
+          {showQuoted && (
+            <div className="mt-3 max-w-[68ch] whitespace-pre-wrap break-words border-l-2 pl-3 text-muted-foreground">
+              {quoted}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -564,15 +589,13 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
             <span className="text-xs text-muted-foreground shrink-0"><TimeAgo iso={email.receivedAt} /></span>
           </div>
 
-          <div className="mt-4 pt-4 border-t whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+          <div className="mt-4 pt-4 border-t">
             {loadingBody ? (
-              <span className="inline-flex items-center gap-2 text-muted-foreground">
+              <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading message…
               </span>
-            ) : body || email.preview ? (
-              body || email.preview
             ) : (
-              <span className="text-muted-foreground italic">(empty message)</span>
+              <MessageBody raw={body || email.preview} />
             )}
           </div>
         </div>
