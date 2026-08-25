@@ -18,9 +18,10 @@ import {
   X,
   Inbox as InboxIcon,
   Plug,
+  AlertCircle,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { useEmails, fetchEmailBody, NotConnectedError } from "@/lib/use-emails";
+import { useEmails, fetchEmailBody, InboxError } from "@/lib/use-emails";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/defaults";
 import type { CategoryId, Email, ToneProfile } from "@/lib/types";
 import { CategoryBadge } from "./category-badge";
@@ -71,21 +72,49 @@ function connectGmail() {
     });
 }
 
-function NotConnectedState() {
+/**
+ * Three different situations that used to share one screen. Telling somebody
+ * to connect an account they already connected is worse than saying nothing,
+ * because it sends them round a loop that cannot fix the problem.
+ */
+function InboxProblemState({ problem }: { problem: InboxError }) {
+  const reconnect = problem.problem === "needs-reconnect";
+  const gmailError = problem.problem === "gmail-error";
+
   return (
     <div className="h-full flex flex-col items-center justify-center text-center p-8">
       <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
-        <Plug className="h-7 w-7 text-primary" />
+        {gmailError ? (
+          <AlertCircle className="h-7 w-7 text-amber-500" />
+        ) : (
+          <Plug className="h-7 w-7 text-primary" />
+        )}
       </div>
-      <h3 className="font-semibold text-lg">Connect your Gmail</h3>
+
+      <h3 className="font-semibold text-lg">
+        {gmailError ? "Gmail refused the request" : reconnect ? "Reconnect your Gmail" : "Connect your Gmail"}
+      </h3>
+
       <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-        InboxPilot reads your real Gmail inbox so the AI can organize it, draft
-        replies, and answer questions about your email. Nothing is sent without
-        your say-so.
+        {gmailError
+          ? "Your account is connected, but Google would not return your mail. The reason it gave is below — most often the Gmail API has not been enabled on the Google Cloud project this app uses."
+          : reconnect
+            ? "Your account is connected, but Google has stopped accepting the connection. This happens when access is revoked or the grant expires. Reconnecting takes a few seconds."
+            : "InboxPilot reads your real Gmail inbox so the AI can organize it, draft replies, and answer questions about your email. Nothing is sent without your say-so."}
       </p>
-      <Button className="mt-5" onClick={connectGmail}>
-        <Plug className="h-4 w-4 mr-2" /> Connect Gmail
-      </Button>
+
+      {problem.detail && (
+        <p className="mt-3 max-w-md rounded-md bg-muted px-3 py-2 text-left text-[11px] font-mono text-muted-foreground break-words">
+          {problem.detail}
+        </p>
+      )}
+
+      {!gmailError && (
+        <Button className="mt-5" onClick={connectGmail}>
+          <Plug className="h-4 w-4 mr-2" /> {reconnect ? "Reconnect Gmail" : "Connect Gmail"}
+        </Button>
+      )}
+
       <p className="text-[11px] text-muted-foreground mt-3 max-w-xs">
         Uses the official Google sign-in. You can disconnect any time from
         Settings.
@@ -534,7 +563,7 @@ export function InboxView() {
 
   const gmailConnected = !isLoading && !error && emails !== undefined;
   const inboxEmpty = gmailConnected && merged.length === 0;
-  const notConnected = error instanceof NotConnectedError;
+  const problem = error instanceof InboxError ? error : null;
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -567,8 +596,8 @@ export function InboxView() {
       <div className={cn("flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col", !selected && "hidden md:flex")}>
         {isLoading ? (
           <LoadingState />
-        ) : notConnected ? (
-          <NotConnectedState />
+        ) : problem ? (
+          <InboxProblemState problem={problem} />
         ) : inboxEmpty ? (
           <EmptyInboxState />
         ) : selected ? (

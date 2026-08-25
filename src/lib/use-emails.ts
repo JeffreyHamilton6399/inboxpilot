@@ -3,19 +3,51 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Email } from "@/lib/types";
 
-export class NotConnectedError extends Error {
+/**
+ * Why the inbox is empty, when it is not simply empty.
+ *
+ * These used to be one thing. Any 401 or 403 from Gmail became "not
+ * connected", so an account that was connected — but whose project had the
+ * Gmail API switched off, or whose grant had lapsed — was told to connect the
+ * account it had already connected.
+ */
+export type InboxProblem = "not-connected" | "needs-reconnect" | "gmail-error";
+
+export class InboxError extends Error {
+  constructor(
+    readonly problem: InboxProblem,
+    message: string,
+    readonly detail?: string
+  ) {
+    super(message);
+    this.name = "InboxError";
+  }
+}
+
+/** Kept for callers that only care whether anything is connected at all. */
+export class NotConnectedError extends InboxError {
   constructor() {
-    super("Gmail not connected");
-    this.name = "NotConnectedError";
+    super("not-connected", "Gmail not connected");
   }
 }
 
 async function fetchEmails(): Promise<Email[]> {
   const res = await fetch("/api/gmail/messages");
+
+  if (res.ok) {
+    const data = await res.json();
+    return (data.emails ?? []) as Email[];
+  }
+
+  const body = await res.json().catch(() => ({}) as Record<string, string>);
   if (res.status === 404) throw new NotConnectedError();
-  if (!res.ok) throw new Error("Failed to load inbox");
-  const data = await res.json();
-  return (data.emails ?? []) as Email[];
+  if (res.status === 409) {
+    throw new InboxError("needs-reconnect", body.error ?? "Reconnect Gmail to continue.", body.detail);
+  }
+  if (res.status === 502) {
+    throw new InboxError("gmail-error", body.error ?? "Gmail refused the request.", body.detail);
+  }
+  throw new Error(body.error ?? "Failed to load inbox");
 }
 
 export function useEmails() {
@@ -24,8 +56,8 @@ export function useEmails() {
     queryFn: fetchEmails,
     staleTime: 20_000,
     retry: (failureCount, error) => {
-      // Don't retry "not connected" — it needs user action.
-      if (error instanceof NotConnectedError) return false;
+      // None of these get better by asking again; they all need a person.
+      if (error instanceof InboxError) return false;
       return failureCount < 1;
     },
   });
