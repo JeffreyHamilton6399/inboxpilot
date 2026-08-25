@@ -101,3 +101,75 @@ describe("a grant that cannot send", () => {
     expect(new GmailApiError(403, body).needsReconnect).toBe(false);
   });
 });
+
+describe("getThread", () => {
+  const b64 = (s: string) => Buffer.from(s, "utf-8").toString("base64url");
+
+  function msg(over: Record<string, unknown> = {}) {
+    return {
+      id: "m1",
+      internalDate: "1700000000000",
+      labelIds: [],
+      payload: {
+        mimeType: "text/plain",
+        body: { data: b64("hello") },
+        headers: [
+          { name: "From", value: "Sarah Chen <sarah@example.com>" },
+          { name: "To", value: "me@gmail.com" },
+          { name: "Date", value: "Tue, 3 Sep 2024 09:12:00 +0000" },
+        ],
+      },
+      ...over,
+    };
+  }
+
+  async function thread(messages: unknown[]) {
+    const { getThread } = await import("./gmail");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ messages }), { status: 200 }))
+    );
+    return getThread("token", "t1", "me@gmail.com");
+  }
+
+  it("returns the conversation oldest first with bodies decoded", async () => {
+    const out = await thread([msg({ id: "a" }), msg({ id: "b" })]);
+    expect(out.map((m) => m.id)).toEqual(["a", "b"]);
+    expect(out[0].body).toBe("hello");
+  });
+
+  it("marks messages carrying the SENT label as mine", async () => {
+    const out = await thread([msg({ labelIds: ["SENT"] })]);
+    expect(out[0].fromMe).toBe(true);
+  });
+
+  it("marks messages from my own address as mine, alias casing included", async () => {
+    const out = await thread([
+      msg({
+        payload: {
+          mimeType: "text/plain",
+          body: { data: b64("mine") },
+          headers: [{ name: "From", value: "Me <ME@Gmail.com>" }],
+        },
+      }),
+    ]);
+    expect(out[0].fromMe).toBe(true);
+  });
+
+  it("does not mark the other party as mine", async () => {
+    const out = await thread([msg()]);
+    expect(out[0].fromMe).toBe(false);
+    expect(out[0].from).toEqual({ name: "Sarah Chen", email: "sarah@example.com" });
+  });
+
+  it("falls back to internalDate when there is no Date header", async () => {
+    const out = await thread([
+      msg({ payload: { mimeType: "text/plain", body: { data: b64("x") }, headers: [] } }),
+    ]);
+    expect(new Date(out[0].receivedAt).getTime()).toBe(1700000000000);
+  });
+
+  it("returns an empty list for a thread with no messages", async () => {
+    expect(await thread([])).toEqual([]);
+  });
+});

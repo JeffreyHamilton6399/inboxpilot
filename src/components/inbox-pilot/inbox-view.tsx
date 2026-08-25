@@ -21,11 +21,12 @@ import {
   MoreHorizontal,
   AlertCircle,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@/lib/store";
-import { useEmails, fetchEmailBody, InboxError } from "@/lib/use-emails";
+import { useEmails, fetchEmailBody, useThread, InboxError } from "@/lib/use-emails";
 import { splitQuotedReply, unwrap } from "@/lib/message-format";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/defaults";
-import type { CategoryId, Email, ToneProfile } from "@/lib/types";
+import type { CategoryId, Email, ThreadMessage, ToneProfile } from "@/lib/types";
 import { CategoryBadge } from "./category-badge";
 import { TimeAgo } from "./time-ago";
 import { Button } from "@/components/ui/button";
@@ -246,6 +247,7 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
   const tone = useStore((s) => s.tone);
   const setDraft = useStore((s) => s.setDraft);
   const { toast } = useToast();
+  const qc = useQueryClient();
   const [loading, setLoading] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [sending, setSending] = React.useState(false);
@@ -339,6 +341,10 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
 
       toast({ title: "Reply sent", description: `Delivered to ${data.to}.` });
       setDraft(email.id, "");
+      // Pull the thread again so what was just sent appears in it. Without
+      // this the reply disappears at the moment of sending, which reads as
+      // having lost it.
+      qc.invalidateQueries({ queryKey: ["thread", email.threadId || email.id] });
     } catch (err) {
       toast({ title: "Could not send", description: String(err), variant: "destructive" });
     } finally {
@@ -470,6 +476,107 @@ function MessageBody({ raw }: { raw: string }) {
   );
 }
 
+/** One message inside a conversation. Older ones start folded, as in Gmail. */
+function ThreadEntry({
+  message,
+  defaultOpen,
+}: {
+  message: ThreadMessage;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const { body } = React.useMemo(() => splitQuotedReply(message.body ?? ""), [message.body]);
+  const preview = React.useMemo(() => body.replace(/\s+/g, " ").slice(0, 120), [body]);
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border",
+        // Your own replies are tinted, so scanning a thread tells you who said
+        // what without reading a single name.
+        message.fromMe ? "border-primary/30 bg-primary/[0.04]" : "bg-card"
+      )}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+        aria-expanded={open}
+      >
+        <span
+          className={cn(
+            "h-6 w-6 shrink-0 rounded-full flex items-center justify-center text-[10px] font-semibold",
+            message.fromMe ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+          )}
+        >
+          {initials(message.fromMe ? "You" : message.from.name)}
+        </span>
+        <span className="text-sm font-medium shrink-0">
+          {message.fromMe ? "You" : message.from.name}
+        </span>
+        {!open && <span className="text-xs text-muted-foreground truncate">{preview}</span>}
+        <span className="ml-auto text-xs text-muted-foreground shrink-0">
+          <TimeAgo iso={message.receivedAt} />
+        </span>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3">
+          <MessageBody raw={message.body} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The whole conversation, oldest first, with the newest message open.
+ *
+ * Reading one message in isolation is reading half of an exchange, and until
+ * this existed a reply sent from the app vanished the instant it was sent —
+ * sent mail is not in the inbox listing. Falls back to the single message when
+ * the thread cannot be loaded, so a failure here never hides the mail.
+ */
+function Conversation({
+  email,
+  fallbackBody,
+  fallbackLoading,
+}: {
+  email: Email;
+  fallbackBody: string;
+  fallbackLoading: boolean;
+}) {
+  const { data, isLoading, isError } = useThread(email.threadId || email.id);
+  const messages = data?.messages ?? [];
+
+  if (isLoading || (fallbackLoading && !messages.length)) {
+    return (
+      <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading conversation…
+      </span>
+    );
+  }
+
+  if (isError || messages.length === 0) {
+    return <MessageBody raw={fallbackBody || email.preview} />;
+  }
+
+  // A conversation of one is just a message; the folding chrome would be noise.
+  if (messages.length === 1) {
+    return <MessageBody raw={messages[0].body || fallbackBody || email.preview} />;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-muted-foreground">
+        {messages.length} messages in this conversation
+      </div>
+      {messages.map((m, i) => (
+        <ThreadEntry key={m.id} message={m} defaultOpen={i === messages.length - 1} />
+      ))}
+    </div>
+  );
+}
+
 function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) {
   const markRead = useStore((s) => s.markRead);
   const toggleRead = useStore((s) => s.toggleRead);
@@ -590,13 +697,7 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
           </div>
 
           <div className="mt-4 pt-4 border-t">
-            {loadingBody ? (
-              <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading message…
-              </span>
-            ) : (
-              <MessageBody raw={body || email.preview} />
-            )}
+            <Conversation email={email} fallbackBody={body} fallbackLoading={loadingBody} />
           </div>
         </div>
       </div>
