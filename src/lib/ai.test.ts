@@ -187,3 +187,61 @@ describe("<think> leakage", () => {
     await expect(chat([{ role: "user", content: "hi" }])).resolves.toBe("Dear Sarah,");
   });
 });
+
+describe("environment values as people actually paste them", () => {
+  it("strips surrounding double quotes from the key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(completion("ok")));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { chat } = await loadAi({ AI_API_KEY: '"gsk_realkey"' });
+    await chat([{ role: "user", content: "hi" }]);
+
+    const init = (fetchMock.mock.calls[0] as [string, RequestInit])[1];
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer gsk_realkey");
+  });
+
+  it("strips surrounding single quotes", async () => {
+    const { readEnv } = await loadAi({ AI_MODEL: "'some/model'" });
+    expect(readEnv("AI_MODEL")).toBe("some/model");
+  });
+
+  it("survives a whole NAME=value line being pasted in", async () => {
+    const { readEnv } = await loadAi({ AI_API_KEY: "AI_API_KEY=gsk_realkey" });
+    expect(readEnv("AI_API_KEY")).toBe("gsk_realkey");
+  });
+
+  it("handles a quoted NAME=value line", async () => {
+    const { readEnv } = await loadAi({ AI_BASE_URL: 'AI_BASE_URL="https://api.x.ai/v1"' });
+    expect(readEnv("AI_BASE_URL")).toBe("https://api.x.ai/v1");
+  });
+
+  it("leaves a normal value alone, quotes inside included", async () => {
+    const { readEnv } = await loadAi({ AI_MODEL: 'a"b' });
+    expect(readEnv("AI_MODEL")).toBe('a"b');
+  });
+
+  it("does not strip a lone leading quote", async () => {
+    const { readEnv } = await loadAi({ AI_MODEL: '"unbalanced' });
+    expect(readEnv("AI_MODEL")).toBe('"unbalanced');
+  });
+});
+
+describe("a key the provider refuses", () => {
+  it("names the variable to fix instead of echoing the provider", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ error: { message: "Invalid API Key", code: "invalid_api_key" } }, 401)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { chat } = await loadAi();
+    await expect(chat([{ role: "user", content: "hi" }])).rejects.toThrow(/AI_API_KEY is not valid/);
+  });
+
+  it("treats 403 the same way", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ error: "forbidden" }, 403));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { chat } = await loadAi();
+    await expect(chat([{ role: "user", content: "hi" }])).rejects.toThrow(/rejected the API key \(403\)/);
+  });
+});
