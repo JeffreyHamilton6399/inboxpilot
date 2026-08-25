@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   const auth = await requireAuth();
   if (!auth.ok) return auth.response;
   try {
-    const { email, tone, instruction } = (await req.json()) as {
+    const { email, tone, instruction, draft: existing } = (await req.json()) as {
       email?: {
         from?: string;
         subject?: string;
@@ -19,6 +19,8 @@ export async function POST(req: Request) {
       };
       tone?: ToneProfile;
       instruction?: string;
+      /** What the user has already written. Present means improve, not replace. */
+      draft?: string;
     };
 
     // Use body if available, otherwise fall back to preview (Gmail emails
@@ -65,6 +67,24 @@ Sign off as "${t?.signature ?? ""}" (just the name, no title line).
 Output ONLY the reply body. No subject line, no "Dear ...", no preamble, no quotation of the original. Start directly with a greeting line if natural, then the body.`,
     };
 
+    // With something already in the box, the job is to improve those words —
+    // not to throw them away and write a fresh reply to the original mail.
+    // Losing what someone typed because they pressed the tidy-up button is the
+    // one behaviour here that would be unforgivable.
+    const task = existing?.trim()
+      ? `The user has written this reply and wants it improved:
+
+"""
+${existing.trim()}
+"""
+
+Rewrite it so it reads better: clearer, better structured, no padding. Keep every
+point they made and keep it recognisably their reply — do not add commitments,
+dates, or facts they did not write. Output only the rewritten reply.`
+      : instruction
+        ? `Extra instruction from the user: ${instruction}`
+        : "Write the reply.";
+
     const user: ChatMsg = {
       role: "user",
       content: `Original email from ${email?.from ?? "(sender)"}:
@@ -73,7 +93,7 @@ Subject: ${email?.subject ?? "(no subject)"}
 ${emailBody}
 
 ---
-${instruction ? `Extra instruction from the user: ${instruction}` : "Write the reply."}`,
+${task}`,
     };
 
     const draft = await chat([system, user], {
