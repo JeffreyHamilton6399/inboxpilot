@@ -247,6 +247,8 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
   const [loading, setLoading] = React.useState(false);
   const [instruction, setInstruction] = React.useState("");
   const [copied, setCopied] = React.useState(false);
+  const [sending, setSending] = React.useState(false);
+  const [confirmSend, setConfirmSend] = React.useState(false);
   const [showAI, setShowAI] = React.useState(false);
 
   const existingDraft = useStore((s) => s.drafts[email.id]);
@@ -290,9 +292,54 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // The draft is handed to Gmail's own compose window rather than sent from
-  // here. Sending is a separate act, and it should happen somewhere the user
-  // recognises as their mail client.
+  /**
+   * Two presses to send, and the second one names the recipient.
+   *
+   * The reply goes out through the Gmail API from the user's own account and
+   * cannot be recalled, and the text may have been written by a model. A
+   * confirm step is the cheapest possible guard against the one mistake here
+   * that cannot be undone.
+   */
+  const send = async () => {
+    if (!existingDraft?.trim() || sending) return;
+
+    if (!confirmSend) {
+      setConfirmSend(true);
+      // Falls back to the normal button if they look away and come back.
+      setTimeout(() => setConfirmSend(false), 5000);
+      return;
+    }
+
+    setConfirmSend(false);
+    setSending(true);
+    try {
+      const res = await fetch("/api/gmail/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: email.id, body: existingDraft }),
+      });
+      const data = await res.json().catch(() => ({}) as Record<string, string>);
+
+      if (!res.ok) {
+        toast({
+          title: res.status === 409 ? "Reconnect Gmail to send" : "Could not send",
+          description: data.detail ? `${data.error} (${data.detail})` : (data.error ?? "Gmail refused the request."),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({ title: "Reply sent", description: `Delivered to ${data.to}.` });
+      setDraft(email.id, "");
+    } catch (err) {
+      toast({ title: "Could not send", description: String(err), variant: "destructive" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Kept as a way out: attachments, a different account, or anything else this
+  // compose box deliberately does not do.
   const openInGmail = () => {
     if (!existingDraft) return;
     const subject = email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`;
@@ -320,8 +367,19 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
 
         {/* Action bar */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Button size="sm" onClick={openInGmail} disabled={!existingDraft}>
-            <Send className="h-3.5 w-3.5 mr-1.5" /> Open in Gmail
+          <Button
+            size="sm"
+            onClick={send}
+            disabled={!existingDraft?.trim() || sending}
+            variant={confirmSend ? "destructive" : "default"}
+            title={`Reply to ${email.from.email}`}
+          >
+            {sending ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <Send className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            {sending ? "Sending…" : confirmSend ? `Send to ${email.from.name}?` : "Send"}
           </Button>
           <Button
             size="sm"
@@ -337,6 +395,9 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
               <Button size="sm" variant="ghost" onClick={copy} className="h-8">
                 {copied ? <Check className="h-3.5 w-3.5 mr-1.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
                 {copied ? "Copied" : "Copy"}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 text-muted-foreground" onClick={openInGmail}>
+                Open in Gmail
               </Button>
               <Button size="sm" variant="ghost" className="h-8 text-muted-foreground" onClick={() => setDraft(email.id, "")}>
                 Clear

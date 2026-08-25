@@ -51,8 +51,8 @@ const FEATURES = [
   },
   {
     icon: PenLine,
-    title: "Drafts, not sends",
-    desc: "Describe how you write once, and replies come back in that register. Nothing leaves your account until you have read it and pressed send yourself.",
+    title: "Drafts you approve",
+    desc: "Describe how you write once, and replies come back in that register. Send goes out in the right thread from your own account, and takes two presses — the second one names the recipient.",
   },
   {
     icon: MessagesSquare,
@@ -232,7 +232,7 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
             </div>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm">
               <span className="inline-flex items-center gap-2 text-muted-foreground">
-                <Check className="h-4 w-4 shrink-0" /> Drafts are never sent for you
+                <Check className="h-4 w-4 shrink-0" /> Nothing sends without your press
               </span>
               <span className="inline-flex items-center gap-2 text-muted-foreground">
                 <Check className="h-4 w-4 shrink-0" /> Revoke Gmail access from Google
