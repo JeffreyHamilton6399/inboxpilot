@@ -46,7 +46,6 @@ type ViewId = "inbox" | "chat" | "meetings" | "settings";
 const NAV: { id: ViewId; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "chat", label: "Ask", icon: MessagesSquare },
-  { id: "meetings", label: "Meetings", icon: CalendarClock },
 ];
 
 function ThemeToggle() {
@@ -60,6 +59,33 @@ function ThemeToggle() {
       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </Button>
   );
+}
+
+/**
+ * Who is actually serving the model.
+ *
+ * The badge showed the model id alone, so a Groq deployment running
+ * openai/gpt-oss-120b read as "OpenAI" — the id names who trained the weights,
+ * not who is answering the request. Naming the host and dropping the vendor
+ * prefix says the true thing in less space.
+ */
+const PROVIDER_NAMES: Record<string, string> = {
+  "api.groq.com": "Groq",
+  "api.x.ai": "xAI",
+  "api.openai.com": "OpenAI",
+  "api.anthropic.com": "Anthropic",
+  "api.together.xyz": "Together",
+  "openrouter.ai": "OpenRouter",
+};
+
+function describeProvider(host: string, model: string): string {
+  const known = PROVIDER_NAMES[host];
+  const provider =
+    known ?? (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host) ? "Local" : host);
+  // "openai/gpt-oss-120b" -> "gpt-oss-120b": the prefix is the weights' origin
+  // and is the exact thing that made this read as the wrong provider.
+  const shortModel = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
+  return `${provider} · ${shortModel}`;
 }
 
 function ProviderBadge() {
@@ -80,10 +106,10 @@ function ProviderBadge() {
     <Badge
       variant="outline"
       className={cn("hidden lg:inline-flex gap-1.5 font-normal", !data.ready && "text-muted-foreground")}
-      title={data.ready ? `Model served by ${data.host}` : "Set AI_API_KEY to enable AI features"}
+      title={data.ready ? `${data.model}, served by ${data.host}` : "Set AI_API_KEY to enable AI features"}
     >
       <CircleDot className={cn("h-3 w-3", data.ready ? "text-emerald-500" : "text-muted-foreground")} />
-      {data.ready ? data.model : "AI not configured"}
+      {data.ready ? describeProvider(data.host, data.model) : "AI not configured"}
     </Badge>
   );
 }
@@ -149,10 +175,14 @@ function NavTabs({ toRespond }: { toRespond: number }) {
 
       {/* Settings is reached from the account menu, so without this there is
           nothing on screen saying where you are or how to get back. */}
-      {activeView === "settings" && (
+      {(activeView === "settings" || activeView === "meetings") && (
         <span className="inline-flex items-center gap-2 rounded-lg bg-primary/10 px-2.5 sm:px-3 py-1.5 text-sm font-medium text-primary">
-          <SettingsIcon className="h-4 w-4 shrink-0" />
-          <span className="hidden sm:inline">Settings</span>
+          {activeView === "settings" ? (
+            <SettingsIcon className="h-4 w-4 shrink-0" />
+          ) : (
+            <CalendarClock className="h-4 w-4 shrink-0" />
+          )}
+          <span className="hidden sm:inline">{activeView === "settings" ? "Settings" : "Meeting notes"}</span>
         </span>
       )}
     </nav>
@@ -180,6 +210,9 @@ function AccountMenu() {
           <div className="text-[11px] text-muted-foreground truncate">{email}</div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setView("meetings")}>
+          <CalendarClock className="h-4 w-4 mr-2" /> Meeting notes
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => setView("settings")}>
           <SettingsIcon className="h-4 w-4 mr-2" /> Settings
         </DropdownMenuItem>

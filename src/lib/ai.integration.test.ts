@@ -135,3 +135,42 @@ live("against the configured provider", () => {
     console.log(`  streamed ${chunks.length} chunks, ${full.length} chars`);
   });
 });
+
+live("batch classification", () => {
+  it("labels a whole batch, mapping every result back to its message", { timeout: 90_000 }, async () => {
+    const list = CATEGORIES.map((c) => `- ${c.id}: ${c.label} — ${c.description}`).join("\n");
+    const inbox = [
+      { from: "Sarah Chen <sarah@example.com>", subject: "Can you review the Q3 doc?", preview: "Need your sign-off before Thursday." },
+      { from: "GitHub <noreply@github.com>", subject: "PR #128 approved", preview: "octocat approved your pull request." },
+      { from: "Substack <hi@substack.com>", subject: "This week in design", preview: "Unsubscribe at any time." },
+      { from: "Google Calendar <calendar-notification@google.com>", subject: "Invitation: Standup @ Mon 9am", preview: "You have been invited." },
+    ];
+
+    const result = await chatJSON<{ results?: { index?: number; category?: string }[] }>(
+      [
+        {
+          role: "system",
+          content: `You are InboxPilot's inbox classifier. You will be given several emails, each with an index.\nAssign exactly ONE category to each.\n\nCategories:\n${list}\n\nThe category must be one of: ${VALID.join(", ")}.\n\nRespond with strict JSON and nothing else:\n{"results":[{"index":0,"category":"<id>","reason":"<max 10 words>"}]}\nReturn one entry for every index you were given.`,
+        },
+        {
+          role: "user",
+          content: inbox
+            .map((e, i) => `[${i}]\nFrom: ${e.from}\nSubject: ${e.subject}\nPreview: ${e.preview}`)
+            .join("\n\n"),
+        },
+      ],
+      { temperature: 0.2, maxTokens: 2048 }
+    );
+
+    const results = result.results ?? [];
+    console.log(`  ${results.length}/${inbox.length} classified`);
+    for (const r of results) {
+      console.log(`    [${r.index}] ${inbox[r.index as number]?.subject.slice(0, 34)} -> ${r.category}`);
+    }
+
+    // One entry per message, every index accounted for, every category real.
+    expect(results.length).toBe(inbox.length);
+    expect(new Set(results.map((r) => r.index))).toEqual(new Set([0, 1, 2, 3]));
+    for (const r of results) expect(VALID).toContain(r.category as CategoryId);
+  });
+});

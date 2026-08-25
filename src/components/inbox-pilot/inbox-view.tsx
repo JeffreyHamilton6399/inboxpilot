@@ -19,6 +19,7 @@ import {
   Inbox as InboxIcon,
   Plug,
   MoreHorizontal,
+  ArrowUpDown,
   AlertCircle,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -162,7 +163,6 @@ function CategoryFilter({
     // min-w-0 is what stops the scrolling row from pushing itself out under
     // the refresh button next to it, which clipped the last chip.
     <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto scroll-thin pb-1">
-      <FilterChip label="All" active={active === "all"} count={Object.values(counts).reduce((a, b) => a + b, 0)} onClick={() => onChange("all")} />
       {CATEGORIES.map((c) => (
         <FilterChip key={c.id} label={c.label} dot={c.dot} active={active === c.id} count={counts[c.id] ?? 0} onClick={() => onChange(c.id)} />
       ))}
@@ -197,6 +197,125 @@ function FilterChip({
       {label}
       <span className={cn("tabular-nums", active ? "text-primary-foreground/80" : "text-muted-foreground")}>{count}</span>
     </button>
+  );
+}
+
+export type SortKey = "newest" | "oldest" | "unread" | "sender" | "needs-reply";
+
+const SORTS: { key: SortKey; label: string; short: string }[] = [
+  { key: "newest", label: "Newest first", short: "Newest" },
+  { key: "oldest", label: "Oldest first", short: "Oldest" },
+  { key: "unread", label: "Unread first", short: "Unread" },
+  { key: "needs-reply", label: "Needs a reply first", short: "Needs reply" },
+  { key: "sender", label: "By sender", short: "Sender" },
+];
+
+/**
+ * Runs the real classifier over the whole inbox.
+ *
+ * The instant pass labels everything on arrival from headers and sender
+ * domains, which is free and usually right. This is the button for when it is
+ * not: it sends the inbox to the model in batches of twenty-five, because one
+ * request per message would be forty round trips to sort one inbox.
+ */
+function SortWithAI({ emails }: { emails: Email[] }) {
+  const setCategory = useStore((s) => s.setCategory);
+  const { toast } = useToast();
+  const [running, setRunning] = React.useState(false);
+  const [done, setDone] = React.useState(0);
+
+  const run = async () => {
+    if (running || emails.length === 0) return;
+    setRunning(true);
+    setDone(0);
+
+    const batches: Email[][] = [];
+    for (let i = 0; i < emails.length; i += 25) batches.push(emails.slice(i, i + 25));
+
+    let changed = 0;
+    try {
+      for (const batch of batches) {
+        const res = await fetch("/api/ai/categorize/batch", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            emails: batch.map((e) => ({
+              id: e.id,
+              from: `${e.from.name} <${e.from.email}>`,
+              subject: e.subject,
+              preview: e.preview,
+            })),
+          }),
+        });
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}) as Record<string, string>);
+          throw new Error(body.error ?? "The model could not sort these.");
+        }
+
+        const { results } = (await res.json()) as {
+          results: { id: string; category: CategoryId }[];
+        };
+        for (const r of results) {
+          const before = batch.find((e) => e.id === r.id)?.category;
+          setCategory(r.id, r.category);
+          if (before !== r.category) changed++;
+        }
+        setDone((d) => d + batch.length);
+      }
+
+      toast({
+        title: "Inbox sorted",
+        description: changed
+          ? `${changed} of ${emails.length} moved to a different tag.`
+          : `The model agreed with all ${emails.length}.`,
+      });
+    } catch (e) {
+      toast({ title: "Couldn't sort the inbox", description: String(e), variant: "destructive" });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className="h-8 shrink-0"
+      onClick={run}
+      disabled={running || emails.length === 0}
+      title="Re-read every message and assign tags with the model"
+    >
+      {running ? (
+        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+      ) : (
+        <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+      )}
+      {running ? `Sorting ${done}/${emails.length}…` : "Sort with AI"}
+    </Button>
+  );
+}
+
+function SortMenu({ sort, onChange }: { sort: SortKey; onChange: (s: SortKey) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-8 shrink-0 text-muted-foreground">
+          <ArrowUpDown className="h-3.5 w-3.5 mr-1.5" />
+          {SORTS.find((s) => s.key === sort)?.short ?? "Sort"}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {SORTS.map((s) => (
+          <DropdownMenuItem key={s.key} onClick={() => onChange(s.key)} className="gap-2">
+            {s.key === sort ? <Check className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
+            {s.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -718,6 +837,7 @@ export function InboxView() {
   const selectEmail = useStore((s) => s.selectEmail);
   const [filter, setFilter] = React.useState<CategoryId | "all">("all");
   const [query, setQuery] = React.useState("");
+  const [sort, setSort] = React.useState<SortKey>("newest");
 
   // Apply persisted overrides to the fetched emails.
   const merged = React.useMemo(() => {
@@ -739,12 +859,35 @@ export function InboxView() {
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    return merged.filter((e) => {
+    const list = merged.filter((e) => {
       if (filter !== "all" && e.category !== filter) return false;
       if (!q) return true;
       return e.subject.toLowerCase().includes(q) || e.from.name.toLowerCase().includes(q) || e.preview.toLowerCase().includes(q);
     });
-  }, [merged, filter, query]);
+
+    const byDate = (a: Email, b: Email) =>
+      new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime();
+
+    switch (sort) {
+      case "oldest":
+        return [...list].sort((a, b) => -byDate(a, b));
+      case "unread":
+        // Unread first, each group still newest first.
+        return [...list].sort((a, b) => Number(b.unread) - Number(a.unread) || byDate(a, b));
+      case "sender":
+        return [...list].sort(
+          (a, b) => a.from.name.localeCompare(b.from.name) || byDate(a, b)
+        );
+      case "needs-reply":
+        return [...list].sort(
+          (a, b) =>
+            Number(b.category === "to-respond") - Number(a.category === "to-respond") ||
+            byDate(a, b)
+        );
+      default:
+        return [...list].sort(byDate);
+    }
+  }, [merged, filter, query, sort]);
 
   const selected = merged.find((e) => e.id === selectedId) ?? null;
 
@@ -769,6 +912,26 @@ export function InboxView() {
             </Button>
           </div>
           <CategoryFilter active={filter} counts={counts} onChange={setFilter} />
+
+          <div className="flex items-center gap-1">
+            {/* "See all" is a button of its own rather than only the first chip
+                in a row that scrolls sideways — with a filter applied and the
+                chips scrolled along, the way back was off-screen. */}
+            <Button
+              size="sm"
+              variant={filter === "all" ? "secondary" : "ghost"}
+              className="h-8 shrink-0"
+              onClick={() => { setFilter("all"); setQuery(""); }}
+            >
+              <InboxIcon className="h-3.5 w-3.5 mr-1.5" />
+              See all
+              <span className="ml-1.5 tabular-nums text-muted-foreground">{merged.length}</span>
+            </Button>
+            <SortMenu sort={sort} onChange={setSort} />
+            <div className="ml-auto">
+              <SortWithAI emails={merged} />
+            </div>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
           {filtered.length === 0 ? (
