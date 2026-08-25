@@ -15,7 +15,8 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:live": "vitest run src/lib/ai.integration.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",

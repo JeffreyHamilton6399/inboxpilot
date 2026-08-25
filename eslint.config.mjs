@@ -23,6 +23,12 @@ const config = [
     },
   },
   {
+    // Tests report what a live provider actually returned; that is the point
+    // of running them, and it belongs on stdout.
+    files: ["**/*.test.ts"],
+    rules: { "no-console": "off" },
+  },
+  {
     ignores: [
       "node_modules/**",
       ".next/**",
