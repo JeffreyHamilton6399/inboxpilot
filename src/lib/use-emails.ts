@@ -34,8 +34,10 @@ export class NotConnectedError extends InboxError {
   }
 }
 
-async function fetchEmails(): Promise<Email[]> {
-  const res = await fetch("/api/gmail/messages");
+async function fetchEmails(search: string): Promise<Email[]> {
+  const res = await fetch(
+    search ? `/api/gmail/messages?q=${encodeURIComponent(search)}` : "/api/gmail/messages"
+  );
 
   if (res.ok) {
     const data = await res.json();
@@ -53,10 +55,21 @@ async function fetchEmails(): Promise<Email[]> {
   throw new Error(body.error ?? "Failed to load inbox");
 }
 
-export function useEmails() {
+/**
+ * The inbox, or the result of a search across all mail.
+ *
+ * `search` is Gmail's own query language, handed over untouched. Searching
+ * used to happen in the browser across the forty messages that happened to be
+ * loaded, so anything older than those forty simply reported itself as not
+ * existing.
+ */
+export function useEmails(search = "") {
   return useQuery({
-    queryKey: ["emails"],
-    queryFn: fetchEmails,
+    queryKey: ["emails", search],
+    queryFn: () => fetchEmails(search),
+    // A search that has already been run stays put while the next one loads,
+    // instead of blanking the list on every keystroke.
+    placeholderData: (previous) => previous,
     staleTime: 20_000,
     retry: (failureCount, error) => {
       // None of these get better by asking again; they all need a person.

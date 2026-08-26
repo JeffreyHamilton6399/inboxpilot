@@ -46,16 +46,24 @@ function colorFor(seed: string): string {
 
 
 // 15-second in-memory cache per user to avoid hammering Gmail on re-renders.
+// Keyed by search as well as user: a search and the plain inbox are different
+// questions, and the answer to one is not the answer to the other.
 const cache = new Map<string, { at: number; data: Email[] }>();
 const CACHE_TTL = 15_000;
 
-export async function GET() {
+/** Gmail rejects a runaway query anyway; this just keeps it from being sent. */
+const MAX_QUERY_CHARS = 500;
+
+export async function GET(req: Request) {
   const auth = await requireAuth();
   if (!auth.ok) return auth.response;
 
-  const cached = cache.get(auth.userId);
+  const search = (new URL(req.url).searchParams.get("q") ?? "").trim().slice(0, MAX_QUERY_CHARS);
+  const cacheKey = `${auth.userId}::${search}`;
+
+  const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.at < CACHE_TTL) {
-    return NextResponse.json({ emails: cached.data, cached: true });
+    return NextResponse.json({ emails: cached.data, cached: true, search });
   }
 
   const gmailAuth = await getGmailAuthForUser(auth.userId);
@@ -67,10 +75,10 @@ export async function GET() {
   }
 
   try {
-    const metas = await listMessages(gmailAuth.accessToken, 40);
+    const metas = await listMessages(gmailAuth.accessToken, 40, search);
     if (metas.length === 0) {
-      cache.set(auth.userId, { at: Date.now(), data: [] });
-      return NextResponse.json({ emails: [] });
+      cache.set(cacheKey, { at: Date.now(), data: [] });
+      return NextResponse.json({ emails: [], search });
     }
 
     const emails: Email[] = (metas as GmailMessageMeta[]).map((m) => {
@@ -110,8 +118,8 @@ export async function GET() {
       };
     });
 
-    cache.set(auth.userId, { at: Date.now(), data: emails });
-    return NextResponse.json({ emails });
+    cache.set(cacheKey, { at: Date.now(), data: emails });
+    return NextResponse.json({ emails, search });
   } catch (err) {
     console.error("[gmail/messages] error:", err);
 

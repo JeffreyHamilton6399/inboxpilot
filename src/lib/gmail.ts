@@ -241,12 +241,26 @@ async function gmailFetch(url: string, accessToken: string): Promise<Response> {
   return res;
 }
 
+/**
+ * The Gmail query for a search box that may be empty.
+ *
+ * An empty box means the inbox. Anything typed is handed to Gmail as its own
+ * query language rather than being escaped into a literal: `from:`, `is:unread`,
+ * `has:attachment` and `older_than:` are what people already know, and they
+ * search all mail, not only the inbox — which is what Gmail's own box does.
+ */
+export function buildListQuery(search?: string): string {
+  const trimmed = search?.trim();
+  return trimmed ? trimmed : "in:inbox";
+}
+
 export async function listMessages(
   accessToken: string,
-  maxResults = 40
+  maxResults = 40,
+  search?: string
 ): Promise<GmailMessageMeta[]> {
   const listRes = await gmailFetch(
-    `${GMAIL_API}/users/me/messages?maxResults=${maxResults}&q=in:inbox`,
+    `${GMAIL_API}/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(buildListQuery(search))}`,
     accessToken
   );
   const listData = (await listRes.json()) as { messages?: { id: string }[] };

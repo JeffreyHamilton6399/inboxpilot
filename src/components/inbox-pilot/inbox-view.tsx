@@ -293,6 +293,16 @@ function ArchiveFiltered({
   );
 }
 
+/** Waits for typing to settle before letting a value through. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = React.useState(value);
+  React.useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
+
 export type SortKey = "newest" | "oldest" | "unread" | "sender" | "needs-reply";
 
 const SORTS: { key: SortKey; label: string; short: string }[] = [
@@ -1004,7 +1014,11 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
 }
 
 export function InboxView() {
-  const { data: emails, isLoading, error, refetch, isFetching } = useEmails();
+  const [query, setQuery] = React.useState("");
+  // Gmail is asked once typing settles, not once per keystroke.
+  const search = useDebounced(query.trim(), 400);
+  const searching = search.length > 0;
+  const { data: emails, isLoading, error, refetch, isFetching } = useEmails(search);
   const drafts = useStore((s) => s.drafts);
   const categoryOverrides = useStore((s) => s.categoryOverrides);
   const readOverrides = useStore((s) => s.readOverrides);
@@ -1012,7 +1026,6 @@ export function InboxView() {
   const selectedId = useStore((s) => s.selectedEmailId);
   const selectEmail = useStore((s) => s.selectEmail);
   const [filter, setFilter] = React.useState<CategoryId | "all">("all");
-  const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState<SortKey>("newest");
 
   const archivedIds = useStore((s) => s.archivedIds);
@@ -1020,7 +1033,9 @@ export function InboxView() {
   // Apply persisted overrides to the fetched emails.
   const merged = React.useMemo(() => {
     if (!emails) return [];
-    const archived = new Set(archivedIds);
+    // Hidden from the inbox, but a search across all mail is entitled to find
+    // them — that is what archiving means.
+    const archived = new Set(searching ? [] : archivedIds);
     return emails.filter((e) => !archived.has(e.id)).map((e) => ({
       ...e,
       category: categoryOverrides[e.id] ?? e.category,
@@ -1028,7 +1043,7 @@ export function InboxView() {
       starred: starredOverrides[e.id] ?? e.starred,
       draft: drafts[e.id] ?? e.draft,
     }));
-  }, [emails, archivedIds, categoryOverrides, readOverrides, starredOverrides, drafts]);
+  }, [emails, archivedIds, searching, categoryOverrides, readOverrides, starredOverrides, drafts]);
 
   const counts = React.useMemo(() => {
     const c: Record<string, number> = {};
@@ -1037,7 +1052,10 @@ export function InboxView() {
   }, [merged]);
 
   const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
+    // Only while the inbox is what is loaded. Once Gmail has run the search,
+    // re-filtering here would throw away its matches: it searches full message
+    // bodies, and the list only carries subject, sender and snippet.
+    const q = searching ? "" : query.trim().toLowerCase();
     const list = merged.filter((e) => {
       if (filter !== "all" && e.category !== filter) return false;
       if (!q) return true;
@@ -1066,12 +1084,12 @@ export function InboxView() {
       default:
         return [...list].sort(byDate);
     }
-  }, [merged, filter, query, sort]);
+  }, [merged, filter, query, searching, sort]);
 
   const selected = merged.find((e) => e.id === selectedId) ?? null;
 
   const gmailConnected = !isLoading && !error && emails !== undefined;
-  const inboxEmpty = gmailConnected && merged.length === 0;
+  const inboxEmpty = gmailConnected && !searching && merged.length === 0;
   const problem = error instanceof InboxError ? error : null;
 
   return (
@@ -1084,12 +1102,42 @@ export function InboxView() {
           <div className="flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search inbox…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8 h-9" disabled={!gmailConnected} />
+              <Input
+                placeholder="Search all mail — from:, has:attachment…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className={cn("pl-8 h-9", query && "pr-8")}
+                disabled={!gmailConnected}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
             <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh">
               <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
             </Button>
           </div>
+          {searching && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {isFetching ? (
+                <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+              ) : (
+                <Search className="h-3 w-3 shrink-0" />
+              )}
+              <span className="truncate">
+                {isFetching
+                  ? "Searching all mail…"
+                  : `${merged.length} in all mail — not just the inbox`}
+              </span>
+            </div>
+          )}
           <CategoryFilter active={filter} counts={counts} onChange={setFilter} />
 
           <div className="flex items-center gap-1">
@@ -1103,11 +1151,13 @@ export function InboxView() {
               onClick={() => { setFilter("all"); setQuery(""); }}
             >
               <InboxIcon className="h-3.5 w-3.5 mr-1.5" />
-              See all
+              {searching ? "Back to inbox" : "See all"}
               <span className="ml-1.5 tabular-nums text-muted-foreground">{merged.length}</span>
             </Button>
             <SortMenu sort={sort} onChange={setSort} />
-            <ArchiveFiltered filter={filter} emails={filtered} onDone={() => setFilter("all")} />
+            {!searching && (
+              <ArchiveFiltered filter={filter} emails={filtered} onDone={() => setFilter("all")} />
+            )}
             <div className="ml-auto">
               <SortWithAI emails={merged} />
             </div>
@@ -1116,7 +1166,11 @@ export function InboxView() {
         <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
           {filtered.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
-              {inboxEmpty ? "No emails yet." : "No emails match."}
+              {searching
+                ? `Nothing in all mail matches “${search}”.`
+                : inboxEmpty
+                  ? "No emails yet."
+                  : "No emails match."}
             </div>
           ) : (
             filtered.map((e) => (
