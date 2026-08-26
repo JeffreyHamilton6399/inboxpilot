@@ -33,6 +33,24 @@ twenty-five — one model call per batch, not one per message. Sort the list by
 newest, oldest, unread, needs-a-reply or sender, and **See all** clears the
 filter from a button that is always on screen.
 
+**Searches all your mail, not what happens to be loaded.** The box hands your
+words to Gmail in Gmail's own query language, so `from:sarah`, `has:attachment`,
+`is:unread` and `older_than:7d` all work, and they search everything rather than
+the inbox — archived mail from last year included. The inbox itself arrives forty
+at a time with **Load more** at the end, because a list that silently stops is a
+list that lies about where your mail ends.
+
+**Stars, marks read, and archives — at Gmail, not just here.** These used to live
+in the browser's local storage, which meant the app showed you a star Gmail had
+never been told about: gone on your phone, gone in another browser, wrong in
+between. They are label changes now, so they hold everywhere your mail does, and
+opening a message marks it read the way every other client does.
+
+Archiving one message is a button. Archiving a whole category is one press —
+which is the part Gmail cannot do, because Gmail makes you select the messages
+first and here the sorting already has. It asks before it does it, it is only
+offered with a filter applied, and it can be undone from the toast that follows.
+
 **Drafts, and sends when you say so.** Describe how you write once — tone, length,
 formality, phrases you use, phrases you never want to see — and replies come back in
 that register. The draft lands in a normal compose box you can edit.
@@ -183,10 +201,11 @@ Google redirect URI updated to match. Next.js is detected automatically. Run
 
 | | |
 |---|---|
-| `src/app/api/gmail/` | OAuth handshake, message list, single message, thread, send |
-| `src/app/api/ai/` | categorize, draft, chat, summarize, health |
+| `src/app/api/gmail/` | OAuth handshake, message list and search, single message, thread, attachment bytes, label changes, send |
+| `src/app/api/ai/` | categorize, draft, chat, summarize, attachment questions, health |
 | `src/lib/ai.ts` | the only place that talks to a model |
 | `src/lib/gmail.ts` | token refresh and the Gmail REST calls |
+| `src/lib/use-emails.tsx` | the inbox query, paging, and the actions that change mail |
 | `src/lib/defaults.ts` | the eight categories and the default tone profile |
 | `src/components/inbox-pilot/` | the app: inbox, ask, meetings, settings |
 | `src/components/ui/` | shadcn primitives, generated rather than hand-written |
