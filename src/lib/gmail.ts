@@ -1,4 +1,5 @@
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "@/lib/db";
 import type { ThreadMessage } from "@/lib/types";
@@ -172,7 +173,9 @@ interface GmailHeader {
 
 interface GmailPart {
   mimeType?: string;
-  body?: { data?: string };
+  filename?: string;
+  headers?: GmailHeader[];
+  body?: { data?: string; size?: number; attachmentId?: string };
   parts?: GmailPart[];
 }
 
@@ -387,29 +390,113 @@ function toBase64Url(input: Buffer): string {
   return input.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Builds the RFC 5322 message Gmail wants, base64url encoded. */
-export function buildReplyMime(ctx: ReplyContext, body: string): string {
-  const headers = [
+/** A file being sent out, already read into memory. */
+export interface OutgoingAttachment {
+  filename: string;
+  mimeType: string;
+  data: Buffer;
+}
+
+/**
+ * Gmail rejects a raw message over 35 MB, and base64 inflates bytes by a
+ * third, so the cap on what goes in is well under that.
+ */
+export const MAX_OUTGOING_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/** base64 in a MIME part has to be wrapped; 76 characters is the limit. */
+function wrapBase64(input: Buffer): string {
+  return input.toString("base64").replace(/(.{76})/g, "$1\r\n");
+}
+
+/**
+ * RFC 2231 for the filename, so a name with an accent or a space survives.
+ * A plain ASCII `filename=` is written alongside it for anything too old to
+ * read the encoded form.
+ *
+ * The parameters are folded onto their own continuation lines: RFC 5322
+ * asks that lines stay under 78 characters, and two filenames plus the
+ * header name passes that on its own for any ordinary name.
+ */
+function contentDisposition(filename: string): string {
+  // Printable ASCII only in the plain parameter; quotes would end it early.
+  const ascii = filename.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "-");
+  return [
+    "Content-Disposition: attachment;",
+    `\tfilename="${ascii}";`,
+    `\tfilename*=UTF-8''${encodeURIComponent(filename)}`,
+  ].join("\r\n");
+}
+
+/**
+ * Builds the RFC 5322 message Gmail wants, base64url encoded.
+ *
+ * With no attachments this stays a single text/plain part — the shape it has
+ * always had. Attachments turn it into multipart/mixed, with the reply text
+ * as the first part so a client showing only the first one still shows the
+ * message rather than a file.
+ */
+export function buildReplyMime(
+  ctx: ReplyContext,
+  body: string,
+  attachments: OutgoingAttachment[] = []
+): string {
+  const base = [
     `To: ${ctx.to}`,
     `Subject: ${encodeHeader(ctx.subject)}`,
     ctx.inReplyTo ? `In-Reply-To: ${ctx.inReplyTo}` : "",
     ctx.references ? `References: ${ctx.references}` : "",
     "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    // Base64 unconditionally: it sidesteps line-length limits and any
-    // character the transport would otherwise mangle.
-    "Content-Transfer-Encoding: base64",
   ].filter(Boolean);
 
-  const encodedBody = Buffer.from(body, "utf-8").toString("base64").replace(/(.{76})/g, "$1\r\n");
-  return toBase64Url(Buffer.from(`${headers.join("\r\n")}\r\n\r\n${encodedBody}`, "utf-8"));
+  if (attachments.length === 0) {
+    const headers = [
+      ...base,
+      'Content-Type: text/plain; charset="UTF-8"',
+      // Base64 unconditionally: it sidesteps line-length limits and any
+      // character the transport would otherwise mangle.
+      "Content-Transfer-Encoding: base64",
+    ];
+    const encodedBody = wrapBase64(Buffer.from(body, "utf-8"));
+    return toBase64Url(Buffer.from(`${headers.join("\r\n")}\r\n\r\n${encodedBody}`, "utf-8"));
+  }
+
+  // Random, so it cannot collide with anything inside a part. Twelve bytes is
+  // 96 bits of randomness and keeps the Content-Type line under 78 characters.
+  const boundary = `=_ip_${randomBytes(12).toString("hex")}`;
+  const headers = [...base, `Content-Type: multipart/mixed; boundary="${boundary}"`];
+
+  const parts = [
+    [
+      'Content-Type: text/plain; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      wrapBase64(Buffer.from(body, "utf-8")),
+    ].join("\r\n"),
+    ...attachments.map((file) =>
+      [
+        `Content-Type: ${file.mimeType}`,
+        "Content-Transfer-Encoding: base64",
+        contentDisposition(file.filename),
+        "",
+        wrapBase64(file.data),
+      ].join("\r\n")
+    ),
+  ];
+
+  const message =
+    `${headers.join("\r\n")}\r\n\r\n` +
+    parts.map((part) => `--${boundary}\r\n${part}`).join("\r\n") +
+    `\r\n--${boundary}--\r\n`;
+
+  return toBase64Url(Buffer.from(message, "utf-8"));
 }
 
 /** Sends a reply into an existing thread. Returns the new message's id. */
 export async function sendReply(
   accessToken: string,
   ctx: ReplyContext,
-  body: string
+  body: string,
+  attachments: OutgoingAttachment[] = []
 ): Promise<{ id: string; threadId: string }> {
   const res = await fetch(`${GMAIL_API}/users/me/messages/send`, {
     method: "POST",
@@ -417,11 +504,117 @@ export async function sendReply(
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ raw: buildReplyMime(ctx, body), threadId: ctx.threadId }),
+    body: JSON.stringify({ raw: buildReplyMime(ctx, body, attachments), threadId: ctx.threadId }),
   });
   if (!res.ok) throw new GmailApiError(res.status, await res.text().catch(() => ""));
   const sent = (await res.json()) as { id: string; threadId: string };
   return { id: sent.id, threadId: sent.threadId };
+}
+
+
+// --- Attachments ---
+
+/**
+ * One file hanging off a message. Gmail hands back an id rather than bytes,
+ * so the body is fetched separately, only when something asks for it.
+ */
+export interface GmailAttachment {
+  /** Gmail's attachmentId — opaque, and only valid for this message. */
+  id: string;
+  filename: string;
+  mimeType: string;
+  /** Size in bytes. */
+  size: number;
+  /**
+   * True when the part is referenced from the HTML body by `cid:` — a
+   * signature logo rather than something the sender meant to send. Listed
+   * separately so the UI can leave them out.
+   */
+  inline: boolean;
+}
+
+function headerValue(part: GmailPart, name: string): string | undefined {
+  return part.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value;
+}
+
+/**
+ * Walks the MIME tree and returns every part that is a file.
+ *
+ * A part counts as an attachment when it has both a filename and an
+ * attachmentId. That pairing is what separates a real file from the
+ * text/plain and text/html alternatives, which have neither.
+ */
+export function extractAttachments(payload: GmailPart | undefined): GmailAttachment[] {
+  if (!payload) return [];
+  const found: GmailAttachment[] = [];
+
+  const walk = (part: GmailPart): void => {
+    if (part.parts?.length) {
+      for (const child of part.parts) walk(child);
+      return;
+    }
+    if (!part.filename || !part.body?.attachmentId) return;
+
+    const disposition = headerValue(part, "content-disposition") ?? "";
+    const contentId = headerValue(part, "content-id");
+    found.push({
+      id: part.body.attachmentId,
+      filename: part.filename,
+      mimeType: part.mimeType || "application/octet-stream",
+      size: part.body.size ?? 0,
+      inline: /inline/i.test(disposition) && Boolean(contentId),
+    });
+  };
+
+  walk(payload);
+  return found;
+}
+
+/**
+ * Fetches one attachment's bytes.
+ *
+ * The metadata is re-read from the message rather than trusted from the
+ * caller: the filename and content type decide how the browser renders the
+ * response, and neither should come from a query string.
+ */
+export async function getAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string
+): Promise<{ meta: GmailAttachment; data: Buffer } | null> {
+  const msgRes = await gmailFetch(
+    `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}?format=full`,
+    accessToken
+  );
+  const msg = (await msgRes.json()) as GmailMessageMeta;
+  const meta = extractAttachments(msg.payload).find((a) => a.id === attachmentId);
+  if (!meta) return null;
+
+  const res = await gmailFetch(
+    `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    accessToken
+  );
+  const body = (await res.json()) as { data?: string };
+  if (!body.data) return null;
+
+  const data = Buffer.from(body.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  return { meta: { ...meta, size: data.byteLength }, data };
+}
+
+/** Reads a message's body and its attachment list in one round trip. */
+export async function getMessageDetail(
+  accessToken: string,
+  id: string
+): Promise<{ body: string; attachments: GmailAttachment[] }> {
+  const res = await gmailFetch(
+    `${GMAIL_API}/users/me/messages/${encodeURIComponent(id)}?format=full`,
+    accessToken
+  );
+  const msg = (await res.json()) as GmailMessageMeta;
+  return {
+    body: extractText(msg.payload),
+    attachments: extractAttachments(msg.payload).filter((a) => !a.inline),
+  };
 }
 
 // --- Threads ---

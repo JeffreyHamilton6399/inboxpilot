@@ -20,6 +20,14 @@ export interface Category {
   dot: string;
 }
 
+/** A file on a message. Bytes are fetched on demand from our own route. */
+export interface Attachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface Email {
   id: string;
   /** The conversation this message belongs to. */

@@ -24,10 +24,11 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@/lib/store";
-import { useEmails, fetchEmailBody, useThread, InboxError } from "@/lib/use-emails";
+import { useEmails, fetchEmailDetail, useThread, InboxError } from "@/lib/use-emails";
+import { AttachmentBar, PendingAttachments } from "@/components/inbox-pilot/attachments";
 import { splitQuotedReply, unwrap } from "@/lib/message-format";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/defaults";
-import type { CategoryId, Email, ThreadMessage, ToneProfile } from "@/lib/types";
+import type { Attachment, CategoryId, Email, ThreadMessage, ToneProfile } from "@/lib/types";
 import { CategoryBadge } from "./category-badge";
 import { TimeAgo } from "./time-ago";
 import { Button } from "@/components/ui/button";
@@ -363,6 +364,10 @@ function EmailRow({
 }
 
 function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolean }) {
+  // Files live only until the reply is sent; nothing is uploaded ahead of time.
+  const [files, setFiles] = React.useState<File[]>([]);
+  const [dragging, setDragging] = React.useState(false);
+  const fileInput = React.useRef<HTMLInputElement>(null);
   const tone = useStore((s) => s.tone);
   const setDraft = useStore((s) => s.setDraft);
   const { toast } = useToast();
@@ -442,11 +447,22 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
     setConfirmSend(false);
     setSending(true);
     try {
-      const res = await fetch("/api/gmail/send", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: email.id, body: existingDraft }),
-      });
+      // Files force multipart; a plain reply stays the JSON request it
+      // has always been.
+      let res: Response;
+      if (files.length > 0) {
+        const form = new FormData();
+        form.set("id", email.id);
+        form.set("body", existingDraft ?? "");
+        for (const file of files) form.append("files", file);
+        res = await fetch("/api/gmail/send", { method: "POST", body: form });
+      } else {
+        res = await fetch("/api/gmail/send", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: email.id, body: existingDraft }),
+        });
+      }
       const data = await res.json().catch(() => ({}) as Record<string, string>);
 
       if (!res.ok) {
@@ -460,6 +476,7 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
 
       toast({ title: "Reply sent", description: `Delivered to ${data.to}.` });
       setDraft(email.id, "");
+      setFiles([]);
       // Pull the thread again so what was just sent appears in it. Without
       // this the reply disappears at the moment of sending, which reads as
       // having lost it.
@@ -490,7 +507,17 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
   return (
     <div className="border-t bg-card">
       {/* Compose textarea — normal, like Gmail */}
-      <div className="p-3 md:p-4 space-y-2">
+      <div
+        className={cn("p-3 md:p-4 space-y-2", dragging && "bg-primary/5 ring-1 ring-inset ring-primary")}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const dropped = Array.from(e.dataTransfer.files);
+          if (dropped.length) setFiles((current) => [...current, ...dropped]);
+        }}
+      >
         <Textarea
           value={existingDraft ?? ""}
           onChange={(e) => setDraft(email.id, e.target.value)}
@@ -498,12 +525,30 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
           className="min-h-[120px] resize-y border-0 bg-muted/30 focus-visible:ring-1"
         />
 
+        <PendingAttachments
+          files={files}
+          onRemove={(index) => setFiles((current) => current.filter((_, i) => i !== index))}
+        />
+
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const picked = Array.from(e.target.files ?? []);
+            if (picked.length) setFiles((current) => [...current, ...picked]);
+            // Reset so picking the same file twice still fires a change.
+            e.target.value = "";
+          }}
+        />
+
         {/* Action bar */}
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             size="sm"
             onClick={send}
-            disabled={!existingDraft?.trim() || sending}
+            disabled={(!existingDraft?.trim() && files.length === 0) || sending}
             variant={confirmSend ? "destructive" : "default"}
             title={`Reply to ${email.from.email}`}
           >
@@ -513,6 +558,16 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
               <Send className="h-3.5 w-3.5 mr-1.5" />
             )}
             {sending ? "Sending…" : confirmSend ? `Send to ${email.from.name}?` : "Send"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => fileInput.current?.click()}
+            disabled={sending}
+            title="Attach files, or drop them on this box"
+          >
+            <Paperclip className="h-3.5 w-3.5 mr-1.5" />
+            Attach
           </Button>
           <Button
             size="sm"
@@ -705,6 +760,7 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
   const [recategorizing, setRecategorizing] = React.useState(false);
   const [body, setBody] = React.useState(email.body);
   const [loadingBody, setLoadingBody] = React.useState(!email.body);
+  const [attachments, setAttachments] = React.useState<Attachment[]>([]);
 
   React.useEffect(() => {
     if (email.unread) markRead(email.id);
@@ -712,15 +768,19 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
 
   React.useEffect(() => {
     let alive = true;
-    if (!email.body) {
-      setLoadingBody(true);
-      fetchEmailBody(email.id)
-        .then((b) => { if (alive) { setBody(b); setLoadingBody(false); } })
-        .catch(() => { if (alive) setLoadingBody(false); });
-    } else {
-      setBody(email.body);
-      setLoadingBody(false);
-    }
+    setAttachments([]);
+    // The listing has no attachment data, so the detail is fetched even
+    // when the body is already known.
+    setLoadingBody(!email.body);
+    fetchEmailDetail(email.id)
+      .then(({ body: b, attachments: files }) => {
+        if (!alive) return;
+        if (!email.body) setBody(b);
+        setAttachments(files);
+        setLoadingBody(false);
+      })
+      .catch(() => { if (alive) setLoadingBody(false); });
+    if (email.body) setBody(email.body);
     return () => { alive = false; };
   }, [email.id, email.body]);
 
@@ -818,6 +878,8 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
           <div className="mt-4 pt-4 border-t">
             <Conversation email={email} fallbackBody={body} fallbackLoading={loadingBody} />
           </div>
+
+          <AttachmentBar messageId={email.id} attachments={attachments} />
         </div>
       </div>
 

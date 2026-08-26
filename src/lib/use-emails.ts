@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { Email } from "@/lib/types";
+import type { Attachment, Email } from "@/lib/types";
 import type { ThreadMessage } from "@/lib/types";
 
 /**
@@ -64,11 +64,13 @@ export function useEmails() {
   });
 }
 
-export async function fetchEmailBody(id: string): Promise<string> {
+export async function fetchEmailDetail(
+  id: string
+): Promise<{ body: string; attachments: Attachment[] }> {
   const res = await fetch(`/api/gmail/message/${id}`);
   if (!res.ok) throw new Error("Failed to load message");
   const data = await res.json();
-  return data.body ?? "";
+  return { body: data.body ?? "", attachments: data.attachments ?? [] };
 }
 /**
  * The conversation, not just the message that was clicked.

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/session";
-import { getGmailAuthForUser, getMessageBody } from "@/lib/gmail";
+import { getGmailAuthForUser, getMessageDetail } from "@/lib/gmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,8 +21,8 @@ export async function GET(
   }
 
   try {
-    const body = await getMessageBody(gmailAuth.accessToken, id);
-    return NextResponse.json({ id, body });
+    const { body, attachments } = await getMessageDetail(gmailAuth.accessToken, id);
+    return NextResponse.json({ id, body, attachments });
   } catch (err) {
     console.error("[gmail/message] error:", err);
     return NextResponse.json({ error: "Failed to fetch message" }, { status: 500 });
