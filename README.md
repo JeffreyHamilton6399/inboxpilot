@@ -41,7 +41,19 @@ Send goes out through the Gmail API, in the right thread, from your own account.
 takes two presses and the second one names the recipient, because a sent message
 cannot be recalled and the text may have been written by a model. Nothing is ever
 sent on a schedule, in the background, or without that press. "Open in Gmail" is
-still there for anything this box does not do, like attachments.
+still there for anything this box does not do.
+
+**Opens the files, and sends them.** Attachments are listed under the message and
+open in place: a PDF in the browser's own viewer, with paging and zoom and print;
+images and text inline; anything else offered as a download rather than a pretend
+preview. Bytes are served from this app rather than linked to Gmail, because
+Gmail's own attachment URLs carry the access token and that does not belong in an
+image tag. Signature logos — the parts the HTML body references by `cid:` — are
+left out, so a signature does not read as an attachment.
+
+Replies attach too, by button or by dropping files on the compose box. A reply
+carrying nothing but a file is still a reply. Size is capped below what Gmail
+accepts, and refused here rather than failing at Google.
 
 **Answers questions about your mail.** "Who am I still owing a reply?" gets answered
 from the messages actually in your inbox, with the sender and subject cited. The
