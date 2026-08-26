@@ -1,6 +1,8 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import * as React from "react";
+import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { ToastAction } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store";
 import type { Attachment, Email, MessageChange } from "@/lib/types";
@@ -34,14 +36,21 @@ export class NotConnectedError extends InboxError {
   }
 }
 
-async function fetchEmails(search: string): Promise<Email[]> {
-  const res = await fetch(
-    search ? `/api/gmail/messages?q=${encodeURIComponent(search)}` : "/api/gmail/messages"
-  );
+interface EmailPage {
+  emails: Email[];
+  nextPageToken?: string;
+}
+
+async function fetchEmails(search: string, pageToken?: string): Promise<EmailPage> {
+  const params = new URLSearchParams();
+  if (search) params.set("q", search);
+  if (pageToken) params.set("pageToken", pageToken);
+  const qs = params.toString();
+  const res = await fetch(`/api/gmail/messages${qs ? `?${qs}` : ""}`);
 
   if (res.ok) {
     const data = await res.json();
-    return (data.emails ?? []) as Email[];
+    return { emails: (data.emails ?? []) as Email[], nextPageToken: data.nextPageToken };
   }
 
   const body = await res.json().catch(() => ({}) as Record<string, string>);
@@ -64,9 +73,11 @@ async function fetchEmails(search: string): Promise<Email[]> {
  * existing.
  */
 export function useEmails(search = "") {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: ["emails", search],
-    queryFn: () => fetchEmails(search),
+    queryFn: ({ pageParam }) => fetchEmails(search, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextPageToken,
     // A search that has already been run stays put while the next one loads,
     // instead of blanking the list on every keystroke.
     placeholderData: (previous) => previous,
@@ -77,6 +88,26 @@ export function useEmails(search = "") {
       return failureCount < 1;
     },
   });
+
+  const { data } = query;
+  const emails = React.useMemo(() => {
+    if (!data) return undefined;
+    // Deduped by id: a page boundary that shifts between requests — new mail
+    // arriving while you page down — can otherwise hand back the same message
+    // twice, and React would object to the repeated key.
+    const seen = new Set<string>();
+    const out: Email[] = [];
+    for (const page of data.pages) {
+      for (const email of page.emails) {
+        if (seen.has(email.id)) continue;
+        seen.add(email.id);
+        out.push(email);
+      }
+    }
+    return out;
+  }, [data]);
+
+  return { ...query, emails };
 }
 
 /**
@@ -125,15 +156,46 @@ export function useMessageActions() {
       if (!(await push([id], { unread: !read }))) setRead(id, !read);
     },
 
+    /**
+     * Archives, and offers to put it back.
+     *
+     * Archiving is exactly reversible — it removes one label — so there is no
+     * excuse for it to be a one-way door. The undo lives here rather than at
+     * each button so that every way of archiving gets it.
+     */
     async archive(ids: string[]) {
       if (ids.length === 0) return;
+
       setArchived(ids, true);
-      if (await push(ids, { archived: true })) {
-        // Gmail's `in:inbox` will now leave these out on its own.
-        qc.invalidateQueries({ queryKey: ["emails"] });
-      } else {
+      if (!(await push(ids, { archived: true }))) {
         setArchived(ids, false);
+        return;
       }
+      // Gmail's `in:inbox` will now leave these out on its own.
+      qc.invalidateQueries({ queryKey: ["emails"] });
+
+      const undo = async () => {
+        setArchived(ids, false);
+        if (await push(ids, { archived: false })) {
+          qc.invalidateQueries({ queryKey: ["emails"] });
+          toast({
+            title: `Back in your inbox`,
+            description: `${ids.length === 1 ? "The message is" : `All ${ids.length} are`} where ${ids.length === 1 ? "it" : "they"} started.`,
+          });
+        } else {
+          setArchived(ids, true);
+        }
+      };
+
+      toast({
+        title: `Archived ${ids.length} ${ids.length === 1 ? "message" : "messages"}`,
+        description: "Still in All Mail and in search.",
+        action: (
+          <ToastAction altText="Undo archive" onClick={() => void undo()}>
+            Undo
+          </ToastAction>
+        ),
+      });
     },
   };
 }

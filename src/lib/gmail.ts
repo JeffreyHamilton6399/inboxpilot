@@ -254,18 +254,33 @@ export function buildListQuery(search?: string): string {
   return trimmed ? trimmed : "in:inbox";
 }
 
+/** One page of the list, and the token that asks for the next one. */
+export interface MessagePage {
+  messages: GmailMessageMeta[];
+  /** Absent when this is the last page. */
+  nextPageToken?: string;
+}
+
 export async function listMessages(
   accessToken: string,
   maxResults = 40,
-  search?: string
-): Promise<GmailMessageMeta[]> {
-  const listRes = await gmailFetch(
-    `${GMAIL_API}/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(buildListQuery(search))}`,
-    accessToken
-  );
-  const listData = (await listRes.json()) as { messages?: { id: string }[] };
+  search?: string,
+  pageToken?: string
+): Promise<MessagePage> {
+  const params = new URLSearchParams({
+    maxResults: String(maxResults),
+    q: buildListQuery(search),
+  });
+  if (pageToken) params.set("pageToken", pageToken);
+
+  const listRes = await gmailFetch(`${GMAIL_API}/users/me/messages?${params}`, accessToken);
+  const listData = (await listRes.json()) as {
+    messages?: { id: string }[];
+    nextPageToken?: string;
+  };
+  const nextPageToken = listData.nextPageToken;
   const ids = (listData.messages ?? []).map((m) => m.id).filter(Boolean);
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { messages: [], nextPageToken };
 
   // Fetch metadata in parallel batches of 8.
   const out: GmailMessageMeta[] = [];
@@ -285,7 +300,7 @@ export async function listMessages(
     );
     for (const r of results) if (r) out.push(r);
   }
-  return out;
+  return { messages: out, nextPageToken };
 }
 
 export async function getMessageBody(

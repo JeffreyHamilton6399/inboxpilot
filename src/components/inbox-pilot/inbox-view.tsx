@@ -234,7 +234,6 @@ function ArchiveFiltered({
   onDone: () => void;
 }) {
   const actions = useMessageActions();
-  const { toast } = useToast();
   const [confirming, setConfirming] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
@@ -244,14 +243,12 @@ function ArchiveFiltered({
   const run = async () => {
     setBusy(true);
     const ids = emails.map((e) => e.id);
+    // The toast, and the undo with it, come from useMessageActions so that
+    // every route to archiving offers the same way back.
     await actions.archive(ids);
     setBusy(false);
     setConfirming(false);
     onDone();
-    toast({
-      title: `Archived ${ids.length} ${ids.length === 1 ? "message" : "messages"}`,
-      description: `${label} is clear. They are still in All Mail.`,
-    });
   };
 
   return (
@@ -1018,7 +1015,16 @@ export function InboxView() {
   // Gmail is asked once typing settles, not once per keystroke.
   const search = useDebounced(query.trim(), 400);
   const searching = search.length > 0;
-  const { data: emails, isLoading, error, refetch, isFetching } = useEmails(search);
+  const {
+    emails,
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useEmails(search);
   const drafts = useStore((s) => s.drafts);
   const categoryOverrides = useStore((s) => s.categoryOverrides);
   const readOverrides = useStore((s) => s.readOverrides);
@@ -1164,18 +1170,47 @@ export function InboxView() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
-          {filtered.length === 0 ? (
+          {filtered.length === 0 && (
             <div className="p-8 text-center text-sm text-muted-foreground">
               {searching
                 ? `Nothing in all mail matches “${search}”.`
                 : inboxEmpty
                   ? "No emails yet."
                   : "No emails match."}
+              {hasNextPage && !searching && (
+                <span className="block mt-1 text-xs">
+                  Only the first {merged.length} are loaded.
+                </span>
+              )}
             </div>
-          ) : (
-            filtered.map((e) => (
-              <EmailRow key={e.id} email={e} active={selected?.id === e.id} hasDraft={Boolean(drafts[e.id])} onClick={() => selectEmail(e.id)} />
-            ))
+          )}
+
+          {filtered.map((e) => (
+            <EmailRow key={e.id} email={e} active={selected?.id === e.id} hasDraft={Boolean(drafts[e.id])} onClick={() => selectEmail(e.id)} />
+          ))}
+
+          {/* Outside the empty branch on purpose: a category filter can match
+              nothing on the first page while later pages are full of it, and
+              hiding the way forward there is a dead end. */}
+          {hasNextPage && (
+            <div className="p-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => void fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Loading…
+                  </>
+                ) : (
+                  "Load more"
+                )}
+              </Button>
+            </div>
           )}
         </div>
       </div>

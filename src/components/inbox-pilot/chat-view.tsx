@@ -24,7 +24,7 @@ export function ChatView() {
   const clearChat = useStore((s) => s.clearChat);
   const chatBusy = useStore((s) => s.chatBusy);
   const setChatBusy = useStore((s) => s.setChatBusy);
-  const { data: emails } = useEmails();
+  const { emails } = useEmails();
   const { toast } = useToast();
 
   const [input, setInput] = React.useState("");
