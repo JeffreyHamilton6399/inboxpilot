@@ -1,7 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { Download, FileText, ImageIcon, File, X, Loader2, Sparkles } from "lucide-react";
+import {
+  Download,
+  FileText,
+  ImageIcon,
+  File,
+  X,
+  Loader2,
+  Sparkles,
+  AlertTriangle,
+  RefreshCw,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -173,22 +183,8 @@ function AttachmentPreview({
 
       <AskAboutFile messageId={messageId} attachment={attachment} />
 
-      {kind === "pdf" && (
-        // The browser's own PDF viewer — paging, zoom and print for free.
-        <iframe src={url} title={attachment.filename} className="w-full h-[600px] border-0" />
-      )}
-
-      {kind === "image" && (
-        <div className="p-4 text-center bg-muted/20">
-          {/* Not next/image: the bytes come from an API route, and the
-              dimensions are unknown until the response arrives. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt={attachment.filename}
-            className="max-w-full max-h-[600px] inline-block rounded"
-          />
-        </div>
+      {(kind === "pdf" || kind === "image") && (
+        <BytesPreview kind={kind} filename={attachment.filename} url={url} />
       )}
 
       {kind === "text" && <TextPreview url={url} />}
@@ -203,10 +199,131 @@ function AttachmentPreview({
   );
 }
 
+/** The route's own words about a failure, rather than a bare status code. */
+async function readErrorMessage(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  return body?.error ?? `The server returned ${res.status}.`;
+}
+
+function PreviewSpinner() {
+  return (
+    <div className="py-16 flex items-center justify-center text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" />
+    </div>
+  );
+}
+
+/**
+ * A preview that could not be shown, said in words.
+ *
+ * Retry rather than Download, because the failures worth offering an action
+ * for — a session that lapsed while the message sat open, a stumble from
+ * Gmail — are the ones that come good on a second ask. Downloading goes
+ * through the same route and would fail the same way.
+ */
+function PreviewProblem({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="py-12 px-5 flex flex-col items-center gap-3 text-center">
+      <AlertTriangle className="h-5 w-5 text-amber-500" />
+      <div>
+        <p className="text-sm">{message}</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          The file itself is untouched — this is only the preview.
+        </p>
+      </div>
+      <Button variant="outline" size="sm" className="h-7" onClick={onRetry}>
+        <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+        Try again
+      </Button>
+    </div>
+  );
+}
+
+type BlobState =
+  | { status: "loading" }
+  | { status: "ready"; href: string }
+  | { status: "error"; message: string };
+
+/**
+ * Fetches the bytes, then hands back a blob URL for them.
+ *
+ * Pointing an <iframe> or <img> straight at the route renders whatever the
+ * route returned — which is how a failed lookup used to reach people: a raw
+ * `{"error":…}` sitting in the middle of the page where the document should
+ * be. Fetching first means a failure can be recognised as one.
+ */
+function useAttachmentBlob(url: string): { state: BlobState; reload: () => void } {
+  const [attempt, setAttempt] = React.useState(0);
+  const [state, setState] = React.useState<BlobState>({ status: "loading" });
+
+  React.useEffect(() => {
+    let alive = true;
+    let objectUrl: string | null = null;
+    setState({ status: "loading" });
+
+    fetch(url)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await readErrorMessage(res));
+        return res.blob();
+      })
+      .then((blob) => {
+        if (!alive) return;
+        objectUrl = URL.createObjectURL(blob);
+        setState({ status: "ready", href: objectUrl });
+      })
+      .catch((err: Error) => {
+        if (alive) setState({ status: "error", message: err.message });
+      });
+
+    return () => {
+      alive = false;
+      // A blob URL pins the bytes in memory until it is given up explicitly.
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url, attempt]);
+
+  return { state, reload: () => setAttempt((n) => n + 1) };
+}
+
+/** A PDF or an image, once its bytes are in hand. */
+function BytesPreview({
+  kind,
+  filename,
+  url,
+}: {
+  kind: "pdf" | "image";
+  filename: string;
+  url: string;
+}) {
+  const { state, reload } = useAttachmentBlob(url);
+
+  if (state.status === "loading") return <PreviewSpinner />;
+  if (state.status === "error") {
+    return <PreviewProblem message={state.message} onRetry={reload} />;
+  }
+
+  if (kind === "pdf") {
+    // The browser's own PDF viewer — paging, zoom and print for free.
+    return <iframe src={state.href} title={filename} className="w-full h-[600px] border-0" />;
+  }
+  return (
+    <div className="p-4 text-center bg-muted/20">
+      {/* Not next/image: the source is a blob URL of unknown dimensions. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={state.href}
+        alt={filename}
+        className="max-w-full max-h-[600px] inline-block rounded"
+      />
+    </div>
+  );
+}
+
 /** Anything longer is truncated rather than dropped into the DOM whole. */
 const MAX_PREVIEW_CHARS = 200_000;
 
 function TextPreview({ url }: { url: string }) {
+  const [attempt, setAttempt] = React.useState(0);
   const [text, setText] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -215,8 +332,8 @@ function TextPreview({ url }: { url: string }) {
     setText(null);
     setError(null);
     fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await readErrorMessage(res));
         return res.text();
       })
       .then((body) => {
@@ -233,17 +350,13 @@ function TextPreview({ url }: { url: string }) {
     return () => {
       alive = false;
     };
-  }, [url]);
+  }, [url, attempt]);
 
   if (error) {
-    return <div className="py-10 text-center text-sm text-muted-foreground">{error}</div>;
+    return <PreviewProblem message={error} onRetry={() => setAttempt((n) => n + 1)} />;
   }
   if (text === null) {
-    return (
-      <div className="py-10 flex items-center justify-center text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-      </div>
-    );
+    return <PreviewSpinner />;
   }
   return (
     <pre className="p-4 max-h-[480px] overflow-auto text-xs leading-relaxed whitespace-pre-wrap break-words font-mono">
