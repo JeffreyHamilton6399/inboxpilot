@@ -21,10 +21,17 @@ import {
   MoreHorizontal,
   ArrowUpDown,
   AlertCircle,
+  Archive,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@/lib/store";
-import { useEmails, fetchEmailDetail, useThread, InboxError } from "@/lib/use-emails";
+import {
+  useEmails,
+  fetchEmailDetail,
+  useThread,
+  useMessageActions,
+  InboxError,
+} from "@/lib/use-emails";
 import { AttachmentBar, PendingAttachments } from "@/components/inbox-pilot/attachments";
 import { splitQuotedReply, unwrap } from "@/lib/message-format";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/defaults";
@@ -49,6 +56,14 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -198,6 +213,83 @@ function FilterChip({
       {label}
       <span className={cn("tabular-nums", active ? "text-primary-foreground/80" : "text-muted-foreground")}>{count}</span>
     </button>
+  );
+}
+
+/**
+ * Clears a whole category in one go — the thing the AI sorting is actually
+ * for. Gmail can archive in bulk too, but only after you have selected the
+ * messages yourself; here the category has already done that.
+ *
+ * Only offered with a filter applied. An "archive everything" button sitting
+ * over the unfiltered inbox is a mis-click with no undo.
+ */
+function ArchiveFiltered({
+  filter,
+  emails,
+  onDone,
+}: {
+  filter: CategoryId | "all";
+  emails: Email[];
+  onDone: () => void;
+}) {
+  const actions = useMessageActions();
+  const { toast } = useToast();
+  const [confirming, setConfirming] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+
+  if (filter === "all" || emails.length === 0) return null;
+  const label = CATEGORY_MAP[filter].label;
+
+  const run = async () => {
+    setBusy(true);
+    const ids = emails.map((e) => e.id);
+    await actions.archive(ids);
+    setBusy(false);
+    setConfirming(false);
+    onDone();
+    toast({
+      title: `Archived ${ids.length} ${ids.length === 1 ? "message" : "messages"}`,
+      description: `${label} is clear. They are still in All Mail.`,
+    });
+  };
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8 shrink-0"
+        onClick={() => setConfirming(true)}
+      >
+        <Archive className="h-3.5 w-3.5 mr-1.5" />
+        Archive {emails.length}
+      </Button>
+
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Archive {emails.length} {emails.length === 1 ? "message" : "messages"}?
+            </DialogTitle>
+            <DialogDescription>
+              Everything currently shown under {label} leaves the inbox. Nothing
+              is deleted — it stays in All Mail and in search, exactly as
+              archiving in Gmail works.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirming(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void run()} disabled={busy}>
+              {busy && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+              Archive {emails.length}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -752,19 +844,22 @@ function Conversation({
 }
 
 function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) {
-  const markRead = useStore((s) => s.markRead);
-  const toggleRead = useStore((s) => s.toggleRead);
-  const toggleStar = useStore((s) => s.toggleStar);
   const setCategory = useStore((s) => s.setCategory);
+  const actions = useMessageActions();
   const { toast } = useToast();
   const [recategorizing, setRecategorizing] = React.useState(false);
   const [body, setBody] = React.useState(email.body);
   const [loadingBody, setLoadingBody] = React.useState(!email.body);
   const [attachments, setAttachments] = React.useState<Attachment[]>([]);
 
+  // Opening a message marks it read at Gmail too, the way every other client
+  // does — so it is not still bold on your phone.
+  const markRead = actions.read;
   React.useEffect(() => {
-    if (email.unread) markRead(email.id);
-  }, [email.id, email.unread, markRead]);
+    if (email.unread) void markRead(email.id, true);
+    // `markRead` is rebuilt each render; re-running on it would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email.id, email.unread]);
 
   React.useEffect(() => {
     let alive = true;
@@ -816,16 +911,35 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleStar(email.id, email.starred)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void actions.star(email.id, !email.starred)}>
                   <Star className={cn("h-4 w-4", email.starred && "fill-amber-400 text-amber-400")} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Star</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleRead(email.id, email.unread)}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void actions.read(email.id, email.unread)}>
             {email.unread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
           </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => {
+                    void actions.archive([email.id]);
+                    onClose();
+                  }}
+                  aria-label="Archive"
+                >
+                  <Archive className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Archive</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-8" disabled={recategorizing}>
@@ -901,17 +1015,20 @@ export function InboxView() {
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState<SortKey>("newest");
 
+  const archivedIds = useStore((s) => s.archivedIds);
+
   // Apply persisted overrides to the fetched emails.
   const merged = React.useMemo(() => {
     if (!emails) return [];
-    return emails.map((e) => ({
+    const archived = new Set(archivedIds);
+    return emails.filter((e) => !archived.has(e.id)).map((e) => ({
       ...e,
       category: categoryOverrides[e.id] ?? e.category,
       unread: readOverrides[e.id] !== undefined ? !readOverrides[e.id] : e.unread,
       starred: starredOverrides[e.id] ?? e.starred,
       draft: drafts[e.id] ?? e.draft,
     }));
-  }, [emails, categoryOverrides, readOverrides, starredOverrides, drafts]);
+  }, [emails, archivedIds, categoryOverrides, readOverrides, starredOverrides, drafts]);
 
   const counts = React.useMemo(() => {
     const c: Record<string, number> = {};
@@ -990,6 +1107,7 @@ export function InboxView() {
               <span className="ml-1.5 tabular-nums text-muted-foreground">{merged.length}</span>
             </Button>
             <SortMenu sort={sort} onChange={setSort} />
+            <ArchiveFiltered filter={filter} emails={filtered} onDone={() => setFilter("all")} />
             <div className="ml-auto">
               <SortWithAI emails={merged} />
             </div>

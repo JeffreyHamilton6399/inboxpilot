@@ -76,11 +76,19 @@ the action items. Nothing joins your call.
 Worth being explicit, because "AI email assistant" should make anyone read the fine
 print:
 
-- **Gmail is read with `gmail.readonly` and sent with `gmail.send`**, granted through
-  Google's own consent screen and revocable from your Google account at any time.
-  `gmail.send` can only add a message; it cannot read, delete, or alter anything, and
-  it is used at exactly one place in the code — the Send button. There is no scope
-  that would let this app modify or delete your mail, and it does not ask for one.
+- **Gmail is read and changed with `gmail.modify`, and sent with `gmail.send`**,
+  granted through Google's own consent screen and revocable from your Google account
+  at any time. `gmail.send` can only add a message; it cannot read or alter anything,
+  and it is used at exactly one place in the code — the Send button.
+- **`gmail.modify` is what makes starring, read/unread and archiving real.** Before
+  it, those lived in your browser's local storage: the app showed you a star that
+  Gmail had never been told about, which vanished on another device. The cost of
+  fixing that is a scope that can change your mail, so it is worth knowing what it
+  can and cannot do. It changes labels — which is what star, read and archive are —
+  and it could move a message to the bin. It **cannot permanently delete anything**;
+  that needs the full `mail.google.com` scope, which this app does not ask for. The
+  app never bins or deletes; the only changes it makes are the ones you press a
+  button for.
 - **Message bodies are fetched when you open a message**, not mirrored into the
   database. What the database holds is your login, your OAuth tokens, and your tone
   profile.

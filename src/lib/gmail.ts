@@ -2,18 +2,23 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "@/lib/db";
-import type { ThreadMessage } from "@/lib/types";
+import type { MessageChange, ThreadMessage } from "@/lib/types";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim();
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
 
 export const GMAIL_CONFIGURED = Boolean(CLIENT_ID && CLIENT_SECRET);
 
-// Read plus send. The send scope is only ever used by an explicit press of the
-// Send button on a draft the user has read — nothing here sends on its own,
+// Read, change, send. The send scope is only ever used by an explicit press of
+// the Send button on a draft the user has read — nothing here sends on its own,
 // and there is no narrower Gmail scope for "reply within an existing thread".
 export const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
+  // Read, plus the label changes behind star, read/unread and archive.
+  // `gmail.modify` includes everything `gmail.readonly` allowed, so it
+  // replaces it rather than joining it. An account connected before this
+  // meets a 403 saying its scopes are insufficient, which `needsReconnect`
+  // already turns into a prompt to connect again.
+  "https://www.googleapis.com/auth/gmail.modify",
   // Needed to send a reply from inside the app. Gmail has no narrower scope
   // for "send only into a thread the user is already in".
   "https://www.googleapis.com/auth/gmail.send",
@@ -511,6 +516,62 @@ export async function sendReply(
   return { id: sent.id, threadId: sent.threadId };
 }
 
+
+// --- Changing messages ---
+
+/** Gmail has no verbs, only labels — starring is adding STARRED and so on. */
+export function labelsFor(change: MessageChange): {
+  addLabelIds: string[];
+  removeLabelIds: string[];
+} {
+  const addLabelIds: string[] = [];
+  const removeLabelIds: string[] = [];
+
+  const set = (label: string, on: boolean | undefined) => {
+    if (on === undefined) return;
+    (on ? addLabelIds : removeLabelIds).push(label);
+  };
+
+  set("STARRED", change.starred);
+  set("UNREAD", change.unread);
+  // Archiving is the absence of INBOX, so this one reads backwards.
+  if (change.archived !== undefined) {
+    (change.archived ? removeLabelIds : addLabelIds).push("INBOX");
+  }
+
+  return { addLabelIds, removeLabelIds };
+}
+
+/**
+ * Applies a change to one or more messages.
+ *
+ * batchModify rather than a modify apiece: archiving a whole category is a
+ * single button here, and doing that as ninety separate requests would be
+ * ninety chances to half-finish. Gmail takes up to 1000 ids at a time and
+ * answers with no body at all.
+ */
+export async function modifyMessages(
+  accessToken: string,
+  ids: string[],
+  change: MessageChange
+): Promise<void> {
+  const { addLabelIds, removeLabelIds } = labelsFor(change);
+  if (ids.length === 0 || (addLabelIds.length === 0 && removeLabelIds.length === 0)) {
+    return;
+  }
+
+  for (let i = 0; i < ids.length; i += 1000) {
+    const res = await fetch(`${GMAIL_API}/users/me/messages/batchModify`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ids: ids.slice(i, i + 1000), addLabelIds, removeLabelIds }),
+    });
+    if (!res.ok) throw new GmailApiError(res.status, await res.text().catch(() => ""));
+  }
+}
 
 // --- Attachments ---
 

@@ -20,6 +20,12 @@ interface IPState {
   categoryOverrides: Record<string, CategoryId>;
   readOverrides: Record<string, boolean>;
   starredOverrides: Record<string, boolean>;
+  /**
+   * Archived in this session, hidden from the list until the server catches
+   * up. Deliberately not persisted: once Gmail has the change, `in:inbox`
+   * stops returning the message and the server is the better authority.
+   */
+  archivedIds: string[];
 
   // AI chat (per-browser)
   chat: ChatMessage[];
@@ -37,9 +43,9 @@ interface IPState {
 
   setDraft: (emailId: string, text: string) => void;
   setCategory: (emailId: string, cat: CategoryId) => void;
-  toggleRead: (emailId: string, currentUnread: boolean) => void;
-  toggleStar: (emailId: string, currentStarred: boolean) => void;
-  markRead: (emailId: string) => void;
+  setRead: (emailId: string, read: boolean) => void;
+  setStarred: (emailId: string, starred: boolean) => void;
+  setArchived: (emailIds: string[], archived: boolean) => void;
 
   addChat: (msg: ChatMessage) => void;
   updateChat: (id: string, content: string) => void;
@@ -59,6 +65,7 @@ export const useStore = create<IPState>()(
       categoryOverrides: {},
       readOverrides: {},
       starredOverrides: {},
+      archivedIds: [],
       chat: [],
       chatBusy: false,
 
@@ -75,6 +82,7 @@ export const useStore = create<IPState>()(
           categoryOverrides: {},
           readOverrides: {},
           starredOverrides: {},
+          archivedIds: [],
           chat: [],
           chatBusy: false,
           selectedEmailId: null,
@@ -86,22 +94,20 @@ export const useStore = create<IPState>()(
         set((s) => ({
           categoryOverrides: { ...s.categoryOverrides, [emailId]: cat },
         })),
-      toggleRead: (emailId, currentUnread) =>
+      // Absolute rather than toggling, so a failed change can be put back
+      // exactly as it was instead of flipped again and hoped for. These only
+      // move what is on screen; useMessageActions is what tells Gmail, and
+      // what calls these back if Gmail says no.
+      setRead: (emailId, read) =>
+        set((s) => ({ readOverrides: { ...s.readOverrides, [emailId]: read } })),
+      setStarred: (emailId, starred) =>
+        set((s) => ({ starredOverrides: { ...s.starredOverrides, [emailId]: starred } })),
+      setArchived: (emailIds, archived) =>
         set((s) => ({
-          readOverrides: {
-            ...s.readOverrides,
-            [emailId]: currentUnread, // store the *read* boolean
-          },
+          archivedIds: archived
+            ? [...new Set([...s.archivedIds, ...emailIds])]
+            : s.archivedIds.filter((id) => !emailIds.includes(id)),
         })),
-      toggleStar: (emailId, currentStarred) =>
-        set((s) => ({
-          starredOverrides: {
-            ...s.starredOverrides,
-            [emailId]: !currentStarred,
-          },
-        })),
-      markRead: (emailId) =>
-        set((s) => ({ readOverrides: { ...s.readOverrides, [emailId]: true } })),
 
       addChat: (msg) => set((s) => ({ chat: [...s.chat, msg] })),
       updateChat: (id, content) =>

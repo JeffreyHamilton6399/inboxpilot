@@ -1,7 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import type { Attachment, Email } from "@/lib/types";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { useStore } from "@/lib/store";
+import type { Attachment, Email, MessageChange } from "@/lib/types";
 import type { ThreadMessage } from "@/lib/types";
 
 /**
@@ -62,6 +64,65 @@ export function useEmails() {
       return failureCount < 1;
     },
   });
+}
+
+/**
+ * Star, read/unread and archive — applied here and at Gmail, or neither.
+ *
+ * The screen changes first, because waiting on a round trip to show a star
+ * feels broken. But the change is only kept if Gmail accepts it: a refusal
+ * puts the old value back and says so, rather than leaving the app showing
+ * something no other mail client will agree with.
+ */
+export function useMessageActions() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const setRead = useStore((s) => s.setRead);
+  const setStarred = useStore((s) => s.setStarred);
+  const setArchived = useStore((s) => s.setArchived);
+
+  const push = async (ids: string[], change: MessageChange): Promise<boolean> => {
+    const res = await fetch("/api/gmail/modify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids, ...change }),
+    });
+    if (res.ok) return true;
+
+    const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+    toast({
+      title: "Gmail didn't accept that",
+      description:
+        body.code === "GMAIL_NEEDS_RECONNECT"
+          ? "Connect Gmail again in Settings — this app now needs permission to change your mail, not just read it."
+          : (body.error ?? "The change has been undone."),
+      variant: "destructive",
+    });
+    return false;
+  };
+
+  return {
+    async star(id: string, starred: boolean) {
+      setStarred(id, starred);
+      if (!(await push([id], { starred }))) setStarred(id, !starred);
+    },
+
+    async read(id: string, read: boolean) {
+      setRead(id, read);
+      if (!(await push([id], { unread: !read }))) setRead(id, !read);
+    },
+
+    async archive(ids: string[]) {
+      if (ids.length === 0) return;
+      setArchived(ids, true);
+      if (await push(ids, { archived: true })) {
+        // Gmail's `in:inbox` will now leave these out on its own.
+        qc.invalidateQueries({ queryKey: ["emails"] });
+      } else {
+        setArchived(ids, false);
+      }
+    },
+  };
 }
 
 export async function fetchEmailDetail(

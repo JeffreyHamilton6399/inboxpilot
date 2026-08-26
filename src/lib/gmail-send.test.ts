@@ -23,9 +23,22 @@ const ctx = {
 beforeEach(() => vi.restoreAllMocks());
 
 describe("scopes", () => {
-  it("asks for send as well as read", () => {
-    expect(GMAIL_SCOPES).toContain("https://www.googleapis.com/auth/gmail.readonly");
+  it("asks for send as well as read and change", () => {
+    expect(GMAIL_SCOPES).toContain("https://www.googleapis.com/auth/gmail.modify");
     expect(GMAIL_SCOPES).toContain("https://www.googleapis.com/auth/gmail.send");
+  });
+
+  it("does not ask for readonly alongside modify", () => {
+    // gmail.modify already covers reading. Asking for both would show the
+    // user two permissions on the consent screen for one capability.
+    expect(GMAIL_SCOPES).not.toContain("https://www.googleapis.com/auth/gmail.readonly");
+  });
+
+  it("stays clear of the scopes that can delete mail", () => {
+    // gmail.modify cannot delete a message permanently; the full mail.google.com
+    // scope can. Archiving is a label change, so there is no reason to hold it.
+    expect(GMAIL_SCOPES).not.toContain("https://mail.google.com/");
+    expect(GMAIL_SCOPES.every((s) => !s.includes("gmail.settings"))).toBe(true);
   });
 });
 
