@@ -23,6 +23,8 @@ export interface Category {
 /** A file on a message. Bytes are fetched on demand from our own route. */
 export interface Attachment {
   id: string;
+  /** Position in the message's MIME tree — what the URLs are keyed on. */
+  partId: string;
   filename: string;
   mimeType: string;
   size: number;

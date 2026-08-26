@@ -32,8 +32,13 @@ export function attachmentKind(mimeType: string): Kind {
   return "other";
 }
 
-function attachmentUrl(messageId: string, attachmentId: string, download = false): string {
-  const base = `/api/gmail/message/${encodeURIComponent(messageId)}/attachment/${encodeURIComponent(attachmentId)}`;
+/**
+ * Keyed on the part path rather than Gmail's attachmentId: the id is opaque,
+ * enormous, and not guaranteed to still be the one Gmail answers to by the
+ * time someone clicks. The path is short and cannot change.
+ */
+function attachmentUrl(messageId: string, partId: string, download = false): string {
+  const base = `/api/gmail/message/${encodeURIComponent(messageId)}/attachment/${encodeURIComponent(partId)}`;
   return download ? `${base}?download=1` : base;
 }
 
@@ -69,7 +74,7 @@ export function AttachmentBar({
   React.useEffect(() => setOpenId(null), [messageId]);
 
   if (attachments.length === 0) return null;
-  const open = attachments.find((a) => a.id === openId) ?? null;
+  const open = attachments.find((a) => a.partId === openId) ?? null;
 
   return (
     <div className="mt-5 pt-4 border-t">
@@ -81,10 +86,10 @@ export function AttachmentBar({
         {attachments.map((attachment) => {
           const kind = attachmentKind(attachment.mimeType);
           const Icon = ICONS[kind];
-          const active = attachment.id === openId;
+          const active = attachment.partId === openId;
           return (
             <div
-              key={attachment.id}
+              key={attachment.partId}
               className={cn(
                 "flex items-stretch rounded-lg border overflow-hidden bg-card transition-colors",
                 active ? "border-primary" : "hover:border-primary/60"
@@ -92,7 +97,7 @@ export function AttachmentBar({
             >
               <button
                 type="button"
-                onClick={() => setOpenId(active ? null : attachment.id)}
+                onClick={() => setOpenId(active ? null : attachment.partId)}
                 className="flex items-center gap-2.5 px-3 py-2 max-w-[280px] text-left"
                 title={`Preview ${attachment.filename}`}
               >
@@ -105,7 +110,7 @@ export function AttachmentBar({
                 </span>
               </button>
               <a
-                href={attachmentUrl(messageId, attachment.id, true)}
+                href={attachmentUrl(messageId, attachment.partId, true)}
                 download={attachment.filename}
                 className="flex items-center px-2.5 border-l text-muted-foreground hover:text-primary hover:bg-accent"
                 title={`Download ${attachment.filename}`}
@@ -139,7 +144,7 @@ function AttachmentPreview({
   onClose: () => void;
 }) {
   const kind = attachmentKind(attachment.mimeType);
-  const url = attachmentUrl(messageId, attachment.id);
+  const url = attachmentUrl(messageId, attachment.partId);
 
   return (
     <div className="mt-3 rounded-lg border overflow-hidden bg-card">
@@ -150,7 +155,7 @@ function AttachmentPreview({
         </span>
         <div className="ml-auto flex items-center gap-1">
           <Button asChild variant="outline" size="sm" className="h-7">
-            <a href={attachmentUrl(messageId, attachment.id, true)} download={attachment.filename}>
+            <a href={attachmentUrl(messageId, attachment.partId, true)} download={attachment.filename}>
               Download
             </a>
           </Button>
@@ -327,7 +332,7 @@ function AskAboutFile({
     setQuestion("");
     setAnswer(null);
     setNote(null);
-  }, [messageId, attachment.id]);
+  }, [messageId, attachment.partId]);
 
   const ask = async () => {
     const asked = question.trim();
@@ -340,7 +345,7 @@ function AskAboutFile({
       const res = await fetch("/api/ai/attachment", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messageId, attachmentId: attachment.id, question: asked }),
+        body: JSON.stringify({ messageId, attachmentId: attachment.partId, question: asked }),
       });
       const data = (await res.json().catch(() => ({}))) as Record<string, string>;
       if (!res.ok) {

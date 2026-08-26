@@ -31,8 +31,26 @@ export async function GET(
 
   try {
     const found = await getAttachment(gmailAuth.accessToken, id, attachmentId);
-    if (!found) {
-      return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
+    if (!found.ok) {
+      // The two misses are not the same problem, and reporting them as one
+      // sent every investigation down the wrong path. Which parts the message
+      // actually has goes to the log, not to the response.
+      console.error(
+        "[gmail/attachment] miss:",
+        found.reason,
+        "message",
+        id,
+        found.reason === "no-such-part" ? `available: ${found.available.join(", ")}` : found.meta.filename
+      );
+      return NextResponse.json(
+        {
+          error:
+            found.reason === "no-such-part"
+              ? "That file is no longer part of this message."
+              : "Gmail returned no data for that file.",
+        },
+        { status: 404 }
+      );
     }
 
     // `download` switches the disposition so the same URL serves both the

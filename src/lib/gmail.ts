@@ -521,6 +521,14 @@ export async function sendReply(
 export interface GmailAttachment {
   /** Gmail's attachmentId — opaque, and only valid for this message. */
   id: string;
+  /**
+   * Where the part sits in the MIME tree, e.g. `1.0`.
+   *
+   * This is what a client should hold on to. Unlike the attachmentId, which
+   * Gmail may hand back differently on a later `messages.get`, a part's
+   * position in the message cannot change — the message is immutable.
+   */
+  partId: string;
   filename: string;
   mimeType: string;
   /** Size in bytes. */
@@ -548,9 +556,9 @@ export function extractAttachments(payload: GmailPart | undefined): GmailAttachm
   if (!payload) return [];
   const found: GmailAttachment[] = [];
 
-  const walk = (part: GmailPart): void => {
+  const walk = (part: GmailPart, path: string): void => {
     if (part.parts?.length) {
-      for (const child of part.parts) walk(child);
+      part.parts.forEach((child, index) => walk(child, path ? `${path}.${index}` : String(index)));
       return;
     }
     if (!part.filename || !part.body?.attachmentId) return;
@@ -559,6 +567,7 @@ export function extractAttachments(payload: GmailPart | undefined): GmailAttachm
     const contentId = headerValue(part, "content-id");
     found.push({
       id: part.body.attachmentId,
+      partId: path || "0",
       filename: part.filename,
       mimeType: part.mimeType || "application/octet-stream",
       size: part.body.size ?? 0,
@@ -566,39 +575,67 @@ export function extractAttachments(payload: GmailPart | undefined): GmailAttachm
     });
   };
 
-  walk(payload);
+  walk(payload, "");
   return found;
 }
 
 /**
+ * Picks one part out of a message, given whatever the client was holding.
+ *
+ * The part path is tried before the attachmentId on purpose. Gmail's
+ * attachmentId is opaque and tied to a particular `messages.get` — it is not
+ * promised to come back the same on the next one, and when it does not, an id
+ * the page has been holding since it loaded matches nothing and a file that is
+ * plainly listed right there reports itself missing. The path is derived from
+ * the MIME tree, which cannot change, so it is the durable half.
+ */
+export function findAttachment(
+  list: GmailAttachment[],
+  selector: string
+): GmailAttachment | undefined {
+  return list.find((a) => a.partId === selector) ?? list.find((a) => a.id === selector);
+}
+
+/** Why a lookup came back with nothing, so the caller can say which it was. */
+export type AttachmentMiss =
+  | { ok: false; reason: "no-such-part"; available: string[] }
+  | { ok: false; reason: "no-bytes"; meta: GmailAttachment };
+
+/**
  * Fetches one attachment's bytes.
  *
- * The metadata is re-read from the message rather than trusted from the
- * caller: the filename and content type decide how the browser renders the
- * response, and neither should come from a query string.
+ * `selector` is a part path (preferred) or a Gmail attachmentId. The metadata
+ * is re-read from the message rather than trusted from the caller: the
+ * filename and content type decide how the browser renders the response, and
+ * neither should come from a query string.
  */
 export async function getAttachment(
   accessToken: string,
   messageId: string,
-  attachmentId: string
-): Promise<{ meta: GmailAttachment; data: Buffer } | null> {
+  selector: string
+): Promise<{ ok: true; meta: GmailAttachment; data: Buffer } | AttachmentMiss> {
   const msgRes = await gmailFetch(
     `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}?format=full`,
     accessToken
   );
   const msg = (await msgRes.json()) as GmailMessageMeta;
-  const meta = extractAttachments(msg.payload).find((a) => a.id === attachmentId);
-  if (!meta) return null;
+  const parts = extractAttachments(msg.payload);
+  const meta = findAttachment(parts, selector);
+  if (!meta) {
+    return { ok: false, reason: "no-such-part", available: parts.map((a) => a.partId) };
+  }
 
+  // Always the id from the message just fetched, never the caller's — that is
+  // the whole point of re-reading it.
   const res = await gmailFetch(
-    `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(meta.id)}`,
     accessToken
   );
   const body = (await res.json()) as { data?: string };
-  if (!body.data) return null;
+  if (!body.data) return { ok: false, reason: "no-bytes", meta };
 
   const data = Buffer.from(body.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
-  return { meta: { ...meta, size: data.byteLength }, data };
+  return { ok: true, meta: { ...meta, size: data.byteLength }, data };
 }
 
 /** Reads a message's body and its attachment list in one round trip. */
