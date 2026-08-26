@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { canExtractText } from "@/lib/readable-types";
 import type { Attachment } from "@/lib/types";
 
 /** Bytes as something a person reads, e.g. `1.4 MB`. */
@@ -50,6 +52,51 @@ export function attachmentKind(mimeType: string): Kind {
 function attachmentUrl(messageId: string, partId: string, download = false): string {
   const base = `/api/gmail/message/${encodeURIComponent(messageId)}/attachment/${encodeURIComponent(partId)}`;
   return download ? `${base}?download=1` : base;
+}
+
+/**
+ * Saves an attachment, having first checked that it is the attachment.
+ *
+ * A plain `<a href={route} download>` hands the browser whatever comes back
+ * and lets it name the result after the file — so a route that answered with
+ * `{"error":…}` wrote a 41-byte JSON document to disk called `invoice.pdf`,
+ * silently, and the corruption only turned up when someone tried to open it.
+ * Checking the response first costs a buffer the server had already taken:
+ * Gmail returns attachments as base64 inside JSON, so the whole file is
+ * materialised server-side regardless and this download never streamed.
+ */
+function useAttachmentDownload(url: string, filename: string) {
+  const { toast } = useToast();
+  const [saving, setSaving] = React.useState(false);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(await readErrorMessage(res));
+
+      const href = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Firefox needs the URL to outlive the click for the save to complete.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
+    } catch (err) {
+      toast({
+        title: `Couldn't download ${filename}`,
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return { save, saving };
 }
 
 const ICONS: Record<Kind, React.ComponentType<{ className?: string }>> = {
@@ -119,15 +166,7 @@ export function AttachmentBar({
                   </span>
                 </span>
               </button>
-              <a
-                href={attachmentUrl(messageId, attachment.partId, true)}
-                download={attachment.filename}
-                className="flex items-center px-2.5 border-l text-muted-foreground hover:text-primary hover:bg-accent"
-                title={`Download ${attachment.filename}`}
-                aria-label={`Download ${attachment.filename}`}
-              >
-                <Download className="h-3.5 w-3.5" />
-              </a>
+              <ChipDownload messageId={messageId} attachment={attachment} />
             </div>
           );
         })}
@@ -144,6 +183,37 @@ export function AttachmentBar({
   );
 }
 
+/** The save icon on a chip. */
+function ChipDownload({
+  messageId,
+  attachment,
+}: {
+  messageId: string;
+  attachment: Attachment;
+}) {
+  const { save, saving } = useAttachmentDownload(
+    attachmentUrl(messageId, attachment.partId, true),
+    attachment.filename
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={save}
+      disabled={saving}
+      className="flex items-center px-2.5 border-l text-muted-foreground hover:text-primary hover:bg-accent disabled:opacity-50"
+      title={`Download ${attachment.filename}`}
+      aria-label={`Download ${attachment.filename}`}
+    >
+      {saving ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Download className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
+
 function AttachmentPreview({
   messageId,
   attachment,
@@ -155,6 +225,10 @@ function AttachmentPreview({
 }) {
   const kind = attachmentKind(attachment.mimeType);
   const url = attachmentUrl(messageId, attachment.partId);
+  const download = useAttachmentDownload(
+    attachmentUrl(messageId, attachment.partId, true),
+    attachment.filename
+  );
 
   return (
     <div className="mt-3 rounded-lg border overflow-hidden bg-card">
@@ -164,10 +238,15 @@ function AttachmentPreview({
           {attachment.mimeType} · {formatBytes(attachment.size)}
         </span>
         <div className="ml-auto flex items-center gap-1">
-          <Button asChild variant="outline" size="sm" className="h-7">
-            <a href={attachmentUrl(messageId, attachment.partId, true)} download={attachment.filename}>
-              Download
-            </a>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7"
+            onClick={download.save}
+            disabled={download.saving}
+          >
+            {download.saving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+            Download
           </Button>
           <Button
             variant="ghost"
@@ -181,7 +260,11 @@ function AttachmentPreview({
         </div>
       </div>
 
-      <AskAboutFile messageId={messageId} attachment={attachment} />
+      {/* Offered only where an answer is possible. The model reads text, so
+          on a zip or an image the box could do nothing but apologise. */}
+      {canExtractText(attachment.mimeType) && (
+        <AskAboutFile messageId={messageId} attachment={attachment} />
+      )}
 
       {(kind === "pdf" || kind === "image") && (
         <BytesPreview kind={kind} filename={attachment.filename} url={url} />
