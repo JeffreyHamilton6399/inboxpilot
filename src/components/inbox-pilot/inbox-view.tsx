@@ -24,10 +24,11 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@/lib/store";
-import { useEmails, fetchEmailBody, useThread, InboxError } from "@/lib/use-emails";
+import { useEmails, fetchEmailDetail, useThread, InboxError } from "@/lib/use-emails";
+import { AttachmentBar } from "@/components/inbox-pilot/attachments";
 import { splitQuotedReply, unwrap } from "@/lib/message-format";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/defaults";
-import type { CategoryId, Email, ThreadMessage, ToneProfile } from "@/lib/types";
+import type { Attachment, CategoryId, Email, ThreadMessage, ToneProfile } from "@/lib/types";
 import { CategoryBadge } from "./category-badge";
 import { TimeAgo } from "./time-ago";
 import { Button } from "@/components/ui/button";
@@ -705,6 +706,7 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
   const [recategorizing, setRecategorizing] = React.useState(false);
   const [body, setBody] = React.useState(email.body);
   const [loadingBody, setLoadingBody] = React.useState(!email.body);
+  const [attachments, setAttachments] = React.useState<Attachment[]>([]);
 
   React.useEffect(() => {
     if (email.unread) markRead(email.id);
@@ -712,15 +714,19 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
 
   React.useEffect(() => {
     let alive = true;
-    if (!email.body) {
-      setLoadingBody(true);
-      fetchEmailBody(email.id)
-        .then((b) => { if (alive) { setBody(b); setLoadingBody(false); } })
-        .catch(() => { if (alive) setLoadingBody(false); });
-    } else {
-      setBody(email.body);
-      setLoadingBody(false);
-    }
+    setAttachments([]);
+    // The listing has no attachment data, so the detail is fetched even
+    // when the body is already known.
+    setLoadingBody(!email.body);
+    fetchEmailDetail(email.id)
+      .then(({ body: b, attachments: files }) => {
+        if (!alive) return;
+        if (!email.body) setBody(b);
+        setAttachments(files);
+        setLoadingBody(false);
+      })
+      .catch(() => { if (alive) setLoadingBody(false); });
+    if (email.body) setBody(email.body);
     return () => { alive = false; };
   }, [email.id, email.body]);
 
@@ -818,6 +824,8 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
           <div className="mt-4 pt-4 border-t">
             <Conversation email={email} fallbackBody={body} fallbackLoading={loadingBody} />
           </div>
+
+          <AttachmentBar messageId={email.id} attachments={attachments} />
         </div>
       </div>
 

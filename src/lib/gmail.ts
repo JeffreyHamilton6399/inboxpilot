@@ -172,7 +172,9 @@ interface GmailHeader {
 
 interface GmailPart {
   mimeType?: string;
-  body?: { data?: string };
+  filename?: string;
+  headers?: GmailHeader[];
+  body?: { data?: string; size?: number; attachmentId?: string };
   parts?: GmailPart[];
 }
 
@@ -422,6 +424,112 @@ export async function sendReply(
   if (!res.ok) throw new GmailApiError(res.status, await res.text().catch(() => ""));
   const sent = (await res.json()) as { id: string; threadId: string };
   return { id: sent.id, threadId: sent.threadId };
+}
+
+
+// --- Attachments ---
+
+/**
+ * One file hanging off a message. Gmail hands back an id rather than bytes,
+ * so the body is fetched separately, only when something asks for it.
+ */
+export interface GmailAttachment {
+  /** Gmail's attachmentId — opaque, and only valid for this message. */
+  id: string;
+  filename: string;
+  mimeType: string;
+  /** Size in bytes. */
+  size: number;
+  /**
+   * True when the part is referenced from the HTML body by `cid:` — a
+   * signature logo rather than something the sender meant to send. Listed
+   * separately so the UI can leave them out.
+   */
+  inline: boolean;
+}
+
+function headerValue(part: GmailPart, name: string): string | undefined {
+  return part.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value;
+}
+
+/**
+ * Walks the MIME tree and returns every part that is a file.
+ *
+ * A part counts as an attachment when it has both a filename and an
+ * attachmentId. That pairing is what separates a real file from the
+ * text/plain and text/html alternatives, which have neither.
+ */
+export function extractAttachments(payload: GmailPart | undefined): GmailAttachment[] {
+  if (!payload) return [];
+  const found: GmailAttachment[] = [];
+
+  const walk = (part: GmailPart): void => {
+    if (part.parts?.length) {
+      for (const child of part.parts) walk(child);
+      return;
+    }
+    if (!part.filename || !part.body?.attachmentId) return;
+
+    const disposition = headerValue(part, "content-disposition") ?? "";
+    const contentId = headerValue(part, "content-id");
+    found.push({
+      id: part.body.attachmentId,
+      filename: part.filename,
+      mimeType: part.mimeType || "application/octet-stream",
+      size: part.body.size ?? 0,
+      inline: /inline/i.test(disposition) && Boolean(contentId),
+    });
+  };
+
+  walk(payload);
+  return found;
+}
+
+/**
+ * Fetches one attachment's bytes.
+ *
+ * The metadata is re-read from the message rather than trusted from the
+ * caller: the filename and content type decide how the browser renders the
+ * response, and neither should come from a query string.
+ */
+export async function getAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string
+): Promise<{ meta: GmailAttachment; data: Buffer } | null> {
+  const msgRes = await gmailFetch(
+    `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}?format=full`,
+    accessToken
+  );
+  const msg = (await msgRes.json()) as GmailMessageMeta;
+  const meta = extractAttachments(msg.payload).find((a) => a.id === attachmentId);
+  if (!meta) return null;
+
+  const res = await gmailFetch(
+    `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    accessToken
+  );
+  const body = (await res.json()) as { data?: string };
+  if (!body.data) return null;
+
+  const data = Buffer.from(body.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  return { meta: { ...meta, size: data.byteLength }, data };
+}
+
+/** Reads a message's body and its attachment list in one round trip. */
+export async function getMessageDetail(
+  accessToken: string,
+  id: string
+): Promise<{ body: string; attachments: GmailAttachment[] }> {
+  const res = await gmailFetch(
+    `${GMAIL_API}/users/me/messages/${encodeURIComponent(id)}?format=full`,
+    accessToken
+  );
+  const msg = (await res.json()) as GmailMessageMeta;
+  return {
+    body: extractText(msg.payload),
+    attachments: extractAttachments(msg.payload).filter((a) => !a.inline),
+  };
 }
 
 // --- Threads ---
