@@ -174,3 +174,101 @@ live("batch classification", () => {
     for (const r of results) expect(VALID).toContain(r.category as CategoryId);
   });
 });
+
+/**
+ * The attachment question path, end to end bar Gmail: a real PDF, really
+ * parsed, really asked about. The unit tests prove the text comes out; this
+ * proves a model given that text answers from it rather than from the
+ * filename.
+ */
+/** Any Unicode space separator, so an assertion is about words not glyphs. */
+function normalizeSpaces(text: string): string {
+  return text.replace(/[s  -​  　]+/g, " ");
+}
+
+live("answering questions about an attachment", () => {
+  const makePdf = (lines: string[]): Buffer => {
+    const escape = (s: string) => s.replace(/([\()])/g, "\$1");
+    const stream = lines
+      .map((line, i) => `BT /F1 12 Tf 72 ${720 - i * 20} Td (${escape(line)}) Tj ET`)
+      .join("\n");
+    const objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] " +
+        "/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+      `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+    let pdf = "%PDF-1.4\n";
+    const offsets: number[] = [];
+    objects.forEach((body, i) => {
+      offsets.push(Buffer.byteLength(pdf, "latin1"));
+      pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
+    });
+    const xref = Buffer.byteLength(pdf, "latin1");
+    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (const o of offsets) pdf += `${String(o).padStart(10, "0")} 00000 n \n`;
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(pdf, "latin1");
+  };
+
+  const invoice = [
+    "Northwind Supply Co.",
+    "INVOICE 4412",
+    "Issued: 25 August 2026",
+    "Due: 12 September 2026",
+    "August retainer 4,200.00",
+    "Onsite engineering days 2,300.00",
+    "VAT 20% 1,397.28",
+    "Total due 8,383.68",
+  ];
+
+  const askAbout = async (pdf: Buffer, question: string): Promise<string> => {
+    const { extractAttachmentText } = await import("./attachment-text");
+    const extracted = await extractAttachmentText("application/pdf", pdf);
+    if (extracted.status !== "ok") throw new Error(`extraction failed: ${extracted.status}`);
+
+    // The same prompt shape the route sends.
+    return chat(
+      [
+        {
+          role: "system",
+          content:
+            "You answer questions about one file attached to an email.\n\n" +
+            "Answer only from the file's contents, which follow. If the file does not " +
+            "contain the answer, say that plainly instead of guessing. Quote exact numbers, " +
+            "dates and names where they matter. Be brief.",
+        },
+        {
+          role: "user",
+          content: `File: invoice-4412.pdf\n\n--- file contents ---\n${extracted.text}\n--- end of file ---\n\nQuestion: ${question}`,
+        },
+      ],
+      { temperature: 0.2 }
+    );
+  };
+
+  it("reads a figure off a real PDF", { timeout: 90_000 }, async () => {
+    const answer = await askAbout(makePdf(invoice), "What is the total due?");
+    console.log(`  answer: ${answer.slice(0, 160)}`);
+    expect(answer).toMatch(/8[,.]?383[.,]68/);
+  });
+
+  it("reads a date off a real PDF", { timeout: 90_000 }, async () => {
+    const answer = await askAbout(makePdf(invoice), "When is it due?");
+    console.log(`  answer: ${answer.slice(0, 160)}`);
+    // Models format dates with typographic spaces — this one came back with a
+    // narrow no-break space between the day and the month. Normalise before
+    // matching, or the assertion fails on an answer that is entirely correct.
+    expect(normalizeSpaces(answer)).toMatch(/12 September|2026-09-12|September 12/i);
+  });
+
+  it("says it does not know rather than inventing an answer", { timeout: 90_000 }, async () => {
+    // Nothing in the invoice names a delivery address; the wrong behaviour is
+    // a confident fabrication, which is the failure that matters here.
+    const answer = await askAbout(makePdf(invoice), "What is the delivery address?");
+    console.log(`  answer: ${answer.slice(0, 200)}`);
+    expect(answer).toMatch(/not|no |does not|isn't|cannot|can't|unable|absent/i);
+  });
+});

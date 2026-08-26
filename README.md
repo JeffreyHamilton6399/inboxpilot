@@ -55,6 +55,14 @@ Replies attach too, by button or by dropping files on the compose box. A reply
 carrying nothing but a file is still a reply. Size is capped below what Gmail
 accepts, and refused here rather than failing at Google.
 
+**Answers questions about a file.** Ask "what is the total?" of an invoice and the
+answer comes from the invoice. The file is fetched and read on the server — a PDF
+is turned into text there, since the provider takes text and nothing else — and the
+model is told to say it does not know rather than guess, because an invented figure
+from a document is worse than no answer. Two things follow from the provider being
+text-only, and both say so rather than pretending: a scanned PDF with no text layer
+would need OCR, which is not set up, and an image cannot be read at all.
+
 **Answers questions about your mail.** "Who am I still owing a reply?" gets answered
 from the messages actually in your inbox, with the sender and subject cited. The
 system prompt forbids inventing messages that aren't in the provided context, which
