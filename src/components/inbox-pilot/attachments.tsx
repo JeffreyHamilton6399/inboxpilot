@@ -243,3 +243,58 @@ function TextPreview({ url }: { url: string }) {
     </pre>
   );
 }
+
+/**
+ * Files staged on a reply that has not been sent. They are held in the
+ * browser until Send, so closing the box costs nothing and nothing is
+ * uploaded speculatively.
+ */
+export function PendingAttachments({
+  files,
+  onRemove,
+}: {
+  files: File[];
+  onRemove: (index: number) => void;
+}) {
+  if (files.length === 0) return null;
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+
+  return (
+    <div className="rounded-lg border bg-muted/20 p-2">
+      <div className="text-xs text-muted-foreground mb-1.5">
+        {files.length} file{files.length === 1 ? "" : "s"} · {formatBytes(total)}
+        {total > SEND_SIZE_LIMIT && (
+          <span className="text-destructive"> — too large for Gmail, remove something</span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {files.map((file, index) => {
+          const kind = attachmentKind(file.type || "application/octet-stream");
+          const Icon = ICONS[kind];
+          return (
+            <span
+              key={`${file.name}-${index}`}
+              className="flex items-center gap-2 rounded-md border bg-card pl-2 pr-1 py-1 text-xs"
+            >
+              <Icon className={cn("h-3.5 w-3.5 shrink-0", ICON_TINT[kind])} />
+              <span className="max-w-[180px] truncate">{file.name}</span>
+              <span className="text-muted-foreground">{formatBytes(file.size)}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(index)}
+                className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+                aria-label={`Remove ${file.name}`}
+                title={`Remove ${file.name}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Matches the server's cap, so the warning appears before the request does. */
+export const SEND_SIZE_LIMIT = 25 * 1024 * 1024;

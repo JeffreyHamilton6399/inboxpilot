@@ -1,4 +1,5 @@
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "@/lib/db";
 import type { ThreadMessage } from "@/lib/types";
@@ -389,29 +390,113 @@ function toBase64Url(input: Buffer): string {
   return input.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Builds the RFC 5322 message Gmail wants, base64url encoded. */
-export function buildReplyMime(ctx: ReplyContext, body: string): string {
-  const headers = [
+/** A file being sent out, already read into memory. */
+export interface OutgoingAttachment {
+  filename: string;
+  mimeType: string;
+  data: Buffer;
+}
+
+/**
+ * Gmail rejects a raw message over 35 MB, and base64 inflates bytes by a
+ * third, so the cap on what goes in is well under that.
+ */
+export const MAX_OUTGOING_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/** base64 in a MIME part has to be wrapped; 76 characters is the limit. */
+function wrapBase64(input: Buffer): string {
+  return input.toString("base64").replace(/(.{76})/g, "$1\r\n");
+}
+
+/**
+ * RFC 2231 for the filename, so a name with an accent or a space survives.
+ * A plain ASCII `filename=` is written alongside it for anything too old to
+ * read the encoded form.
+ *
+ * The parameters are folded onto their own continuation lines: RFC 5322
+ * asks that lines stay under 78 characters, and two filenames plus the
+ * header name passes that on its own for any ordinary name.
+ */
+function contentDisposition(filename: string): string {
+  // Printable ASCII only in the plain parameter; quotes would end it early.
+  const ascii = filename.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "-");
+  return [
+    "Content-Disposition: attachment;",
+    `\tfilename="${ascii}";`,
+    `\tfilename*=UTF-8''${encodeURIComponent(filename)}`,
+  ].join("\r\n");
+}
+
+/**
+ * Builds the RFC 5322 message Gmail wants, base64url encoded.
+ *
+ * With no attachments this stays a single text/plain part — the shape it has
+ * always had. Attachments turn it into multipart/mixed, with the reply text
+ * as the first part so a client showing only the first one still shows the
+ * message rather than a file.
+ */
+export function buildReplyMime(
+  ctx: ReplyContext,
+  body: string,
+  attachments: OutgoingAttachment[] = []
+): string {
+  const base = [
     `To: ${ctx.to}`,
     `Subject: ${encodeHeader(ctx.subject)}`,
     ctx.inReplyTo ? `In-Reply-To: ${ctx.inReplyTo}` : "",
     ctx.references ? `References: ${ctx.references}` : "",
     "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    // Base64 unconditionally: it sidesteps line-length limits and any
-    // character the transport would otherwise mangle.
-    "Content-Transfer-Encoding: base64",
   ].filter(Boolean);
 
-  const encodedBody = Buffer.from(body, "utf-8").toString("base64").replace(/(.{76})/g, "$1\r\n");
-  return toBase64Url(Buffer.from(`${headers.join("\r\n")}\r\n\r\n${encodedBody}`, "utf-8"));
+  if (attachments.length === 0) {
+    const headers = [
+      ...base,
+      'Content-Type: text/plain; charset="UTF-8"',
+      // Base64 unconditionally: it sidesteps line-length limits and any
+      // character the transport would otherwise mangle.
+      "Content-Transfer-Encoding: base64",
+    ];
+    const encodedBody = wrapBase64(Buffer.from(body, "utf-8"));
+    return toBase64Url(Buffer.from(`${headers.join("\r\n")}\r\n\r\n${encodedBody}`, "utf-8"));
+  }
+
+  // Random, so it cannot collide with anything inside a part. Twelve bytes is
+  // 96 bits of randomness and keeps the Content-Type line under 78 characters.
+  const boundary = `=_ip_${randomBytes(12).toString("hex")}`;
+  const headers = [...base, `Content-Type: multipart/mixed; boundary="${boundary}"`];
+
+  const parts = [
+    [
+      'Content-Type: text/plain; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      wrapBase64(Buffer.from(body, "utf-8")),
+    ].join("\r\n"),
+    ...attachments.map((file) =>
+      [
+        `Content-Type: ${file.mimeType}`,
+        "Content-Transfer-Encoding: base64",
+        contentDisposition(file.filename),
+        "",
+        wrapBase64(file.data),
+      ].join("\r\n")
+    ),
+  ];
+
+  const message =
+    `${headers.join("\r\n")}\r\n\r\n` +
+    parts.map((part) => `--${boundary}\r\n${part}`).join("\r\n") +
+    `\r\n--${boundary}--\r\n`;
+
+  return toBase64Url(Buffer.from(message, "utf-8"));
 }
 
 /** Sends a reply into an existing thread. Returns the new message's id. */
 export async function sendReply(
   accessToken: string,
   ctx: ReplyContext,
-  body: string
+  body: string,
+  attachments: OutgoingAttachment[] = []
 ): Promise<{ id: string; threadId: string }> {
   const res = await fetch(`${GMAIL_API}/users/me/messages/send`, {
     method: "POST",
@@ -419,7 +504,7 @@ export async function sendReply(
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ raw: buildReplyMime(ctx, body), threadId: ctx.threadId }),
+    body: JSON.stringify({ raw: buildReplyMime(ctx, body, attachments), threadId: ctx.threadId }),
   });
   if (!res.ok) throw new GmailApiError(res.status, await res.text().catch(() => ""));
   const sent = (await res.json()) as { id: string; threadId: string };
