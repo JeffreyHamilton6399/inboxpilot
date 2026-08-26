@@ -1,6 +1,7 @@
 import { requireAuth } from "@/lib/session";
 import { NextResponse } from "next/server";
 import { getAttachment, getGmailAuthForUser, GmailApiError } from "@/lib/gmail";
+import { bufferToStream } from "@/lib/byte-stream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,10 +59,12 @@ export async function GET(
     const download = new URL(req.url).searchParams.get("download") === "1";
     const disposition = download ? "attachment" : "inline";
 
-    return new NextResponse(new Uint8Array(found.data), {
+    // Streamed rather than returned whole: Vercel caps a buffered response at
+    // 4.5 MB, and Gmail will carry an attachment to 25 MB. No Content-Length,
+    // because declaring one is what makes a response buffered.
+    return new NextResponse(bufferToStream(new Uint8Array(found.data)), {
       headers: {
         "Content-Type": found.meta.mimeType,
-        "Content-Length": String(found.data.byteLength),
         "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(found.meta.filename)}`,
         // Mail attachments are immutable, but they are also private: cache in
         // the browser only, never in a shared proxy.
