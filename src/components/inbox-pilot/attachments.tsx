@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Download, FileText, ImageIcon, File, X, Loader2 } from "lucide-react";
+import { Download, FileText, ImageIcon, File, X, Loader2, Sparkles } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/types";
@@ -165,6 +166,8 @@ function AttachmentPreview({
         </div>
       </div>
 
+      <AskAboutFile messageId={messageId} attachment={attachment} />
+
       {kind === "pdf" && (
         // The browser's own PDF viewer — paging, zoom and print for free.
         <iframe src={url} title={attachment.filename} className="w-full h-[600px] border-0" />
@@ -298,3 +301,99 @@ export function PendingAttachments({
 
 /** Matches the server's cap, so the warning appears before the request does. */
 export const SEND_SIZE_LIMIT = 25 * 1024 * 1024;
+
+/**
+ * Asks a question about the open file.
+ *
+ * The file itself never leaves the server: the request carries a message id,
+ * an attachment id and the question, and the server fetches the bytes and
+ * turns them into text. An answer is grounded in that text or the model is
+ * told to say it does not know.
+ */
+function AskAboutFile({
+  messageId,
+  attachment,
+}: {
+  messageId: string;
+  attachment: Attachment;
+}) {
+  const [question, setQuestion] = React.useState("");
+  const [answer, setAnswer] = React.useState<string | null>(null);
+  const [note, setNote] = React.useState<string | null>(null);
+  const [asking, setAsking] = React.useState(false);
+
+  // A new file is a new subject; the previous answer is about something else.
+  React.useEffect(() => {
+    setQuestion("");
+    setAnswer(null);
+    setNote(null);
+  }, [messageId, attachment.id]);
+
+  const ask = async () => {
+    const asked = question.trim();
+    if (!asked || asking) return;
+
+    setAsking(true);
+    setAnswer(null);
+    setNote(null);
+    try {
+      const res = await fetch("/api/ai/attachment", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messageId, attachmentId: attachment.id, question: asked }),
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, string>;
+      if (!res.ok) {
+        setNote(data.error ?? "That could not be answered.");
+        return;
+      }
+      setAnswer(data.answer ?? "");
+      if (data.truncated) {
+        setNote("The file was too long to send whole, so the end of it was not read.");
+      }
+    } catch (err) {
+      setNote(String(err));
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  return (
+    <div className="px-3 py-2.5 border-b bg-muted/20">
+      <div className="flex items-center gap-2">
+        <Input
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void ask();
+          }}
+          placeholder={`Ask about ${attachment.filename}…`}
+          className="h-8 text-sm"
+          disabled={asking}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 shrink-0"
+          onClick={() => void ask()}
+          disabled={asking || !question.trim()}
+        >
+          {asking ? (
+            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+          )}
+          {asking ? "Reading…" : "Ask"}
+        </Button>
+      </div>
+
+      {note && <div className="mt-2 text-xs text-muted-foreground">{note}</div>}
+
+      {answer && (
+        <div className="mt-2 rounded-md border bg-card p-2.5 text-sm whitespace-pre-wrap">
+          {answer}
+        </div>
+      )}
+    </div>
+  );
+}
