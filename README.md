@@ -51,6 +51,12 @@ which is the part Gmail cannot do, because Gmail makes you select the messages
 first and here the sorting already has. It asks before it does it, it is only
 offered with a filter applied, and it can be undone from the toast that follows.
 
+**Keyboard, if you have Gmail's in your fingers.** `j` and `k` walk the list and
+open as they go, `e` archives and lands you on the next one, `s` stars, `u` goes
+back to the list, `/` jumps to search, `Esc` gets you out, and `?` lists the lot.
+They stay out of the way while you are typing, so a reply that begins "See the
+attached deck" does not archive the message on the first word.
+
 **Drafts, and sends when you say so.** Describe how you write once — tone, length,
 formality, phrases you use, phrases you never want to see — and replies come back in
 that register. The draft lands in a normal compose box you can edit.

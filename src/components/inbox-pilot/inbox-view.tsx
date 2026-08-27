@@ -64,6 +64,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useHotkeys } from "@/lib/use-hotkeys";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -300,6 +301,42 @@ function useDebounced<T>(value: T, ms: number): T {
   return settled;
 }
 
+const SHORTCUTS: { keys: string; does: string }[] = [
+  { keys: "j / k", does: "Next / previous message — it opens as you go" },
+  { keys: "u", does: "Back to the list" },
+  { keys: "e", does: "Archive, and move on" },
+  { keys: "s", does: "Star" },
+  { keys: "/", does: "Search" },
+  { keys: "Esc", does: "Leave the search box, or close the message" },
+  { keys: "?", does: "This list" },
+];
+
+function ShortcutHelp({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Keyboard shortcuts</DialogTitle>
+          <DialogDescription>
+            They do nothing while you are typing, so a compose box never eats
+            them.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          {SHORTCUTS.map((s) => (
+            <div key={s.keys} className="flex items-baseline gap-3 text-sm">
+              <kbd className="shrink-0 min-w-[4.5rem] rounded border bg-muted px-1.5 py-0.5 text-center font-mono text-xs">
+                {s.keys}
+              </kbd>
+              <span className="text-muted-foreground">{s.does}</span>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export type SortKey = "newest" | "oldest" | "unread" | "sender" | "needs-reply";
 
 const SORTS: { key: SortKey; label: string; short: string }[] = [
@@ -432,6 +469,7 @@ function EmailRow({
 }) {
   return (
     <button
+      data-email-id={email.id}
       onClick={onClick}
       className={cn(
         "w-full text-left flex gap-3 px-3 py-3 border-b transition-colors",
@@ -1094,12 +1132,70 @@ export function InboxView() {
 
   const selected = merged.find((e) => e.id === selectedId) ?? null;
 
+  const actions = useMessageActions();
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const [showShortcuts, setShowShortcuts] = React.useState(false);
+
+  /** Steps the selection through the list as it is currently shown. */
+  const step = React.useCallback(
+    (delta: number) => {
+      if (filtered.length === 0) return;
+      const at = filtered.findIndex((e) => e.id === selectedId);
+      const next =
+        at === -1
+          ? delta > 0
+            ? 0
+            : filtered.length - 1
+          : Math.min(filtered.length - 1, Math.max(0, at + delta));
+      selectEmail(filtered[next].id);
+    },
+    [filtered, selectedId, selectEmail]
+  );
+
+  useHotkeys({
+    j: () => step(1),
+    k: () => step(-1),
+    u: () => selectEmail(null),
+    "/": () => searchRef.current?.focus(),
+    "?": () => setShowShortcuts(true),
+    s: () => {
+      if (selected) void actions.star(selected.id, !selected.starred);
+    },
+    e: () => {
+      if (!selected) return;
+      // Land on the next message rather than nothing, the way Gmail does —
+      // archiving a run of mail should not need a click between each one.
+      const at = filtered.findIndex((x) => x.id === selected.id);
+      const after = filtered[at + 1] ?? filtered[at - 1] ?? null;
+      void actions.archive([selected.id]);
+      selectEmail(after ? after.id : null);
+    },
+    Escape: () => {
+      if (document.activeElement === searchRef.current) {
+        setQuery("");
+        searchRef.current?.blur();
+        return;
+      }
+      selectEmail(null);
+    },
+  });
+
+  // Keep the keyboard selection on screen. `nearest` means clicking a row that
+  // is already visible does not jerk the list around.
+  React.useEffect(() => {
+    if (!selectedId) return;
+    document
+      .querySelector(`[data-email-id="${CSS.escape(selectedId)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
+
   const gmailConnected = !isLoading && !error && emails !== undefined;
   const inboxEmpty = gmailConnected && !searching && merged.length === 0;
   const problem = error instanceof InboxError ? error : null;
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
+      <ShortcutHelp open={showShortcuts} onOpenChange={setShowShortcuts} />
       <div className={cn("w-full md:w-[380px] shrink-0 border-r flex flex-col min-h-0", selected && "hidden md:flex")}>
         <div className="p-3 space-y-2 border-b shrink-0">
           {/* Refresh sits with the search box, not beside the filters: the
@@ -1109,6 +1205,7 @@ export function InboxView() {
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
+                ref={searchRef}
                 placeholder="Search all mail — from:, has:attachment…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
