@@ -1,20 +1,11 @@
 "use client";
 
 import * as React from "react";
-import {
-  Video,
-  Sparkles,
-  Loader2,
-  CheckCircle2,
-  ClipboardPaste,
-  Trash2,
-} from "lucide-react";
+import { Sparkles, Loader2, ClipboardPaste, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
 interface SummaryResult {
@@ -85,80 +76,119 @@ export function MeetingsView() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
-        <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-5">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            Paste a transcript and you get back a summary and the action items.
-            Nothing joins your call.
+    <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
+      <div className="mx-auto max-w-2xl px-5 py-8 sm:px-6 md:py-12">
+        <p className="eyebrow">Meeting notes</p>
+        <h1 className="display mt-3 text-3xl sm:text-4xl">
+          Paste what was said. Get back what to do.
+        </h1>
+        <p className="measure mt-3 text-sm leading-relaxed text-muted-foreground">
+          Nothing joins your call and nothing is recorded — the transcript goes to the model you
+          configured, and the result stays in this browser until you reload.
+        </p>
+
+        <div className="mt-8 space-y-3.5">
+          <div className="space-y-1.5">
+            <Label htmlFor="mtg-title" className="text-xs font-normal text-muted-foreground">
+              Title <span className="text-muted-foreground/70">— optional</span>
+            </Label>
+            <Input
+              id="mtg-title"
+              placeholder="Q3 planning sync"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
           </div>
 
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="mtg-title">Meeting title (optional)</Label>
-                <Input id="mtg-title" placeholder="e.g. Q3 planning sync" value={title} onChange={(e) => setTitle(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="mtg-transcript">Transcript</Label>
-                  <Button variant="ghost" size="sm" className="h-7" onClick={pasteFromClipboard}>
-                    <ClipboardPaste className="h-3.5 w-3.5 mr-1.5" /> Paste
-                  </Button>
-                </div>
-                <Textarea
-                  id="mtg-transcript"
-                  placeholder={"Paste your transcript here. Format like:\nAlex: So, thoughts on the roadmap?\nSam: I think we should prioritize..."}
-                  value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
-                  className="min-h-[160px] font-mono text-xs"
-                />
-              </div>
-              <Button className="w-full" disabled={loading || !transcript.trim()} onClick={summarize}>
-                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                {loading ? "Summarizing…" : "Summarize meeting"}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label
+                htmlFor="mtg-transcript"
+                className="text-xs font-normal text-muted-foreground"
+              >
+                Transcript
+              </Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-muted-foreground"
+                onClick={pasteFromClipboard}
+              >
+                <ClipboardPaste className="h-3.5 w-3.5" /> Paste
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+            <Textarea
+              id="mtg-transcript"
+              placeholder={
+                "Alex: So, thoughts on the roadmap?\nSam: I think we should prioritise the migration."
+              }
+              value={transcript}
+              onChange={(e) => setTranscript(e.target.value)}
+              className="min-h-[180px] font-mono text-xs leading-relaxed"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              One line per turn, <span className="font-mono">Speaker: what they said</span>. Loose
+              text works too.
+            </p>
+          </div>
 
-          {results.length > 0 && (
-            <div className="space-y-4">
-              <Separator />
-              <h3 className="text-sm font-medium text-muted-foreground">Recent summaries</h3>
+          <Button disabled={loading || !transcript.trim()} onClick={summarize}>
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {loading ? "Reading it…" : "Summarise"}
+          </Button>
+        </div>
+
+        {results.length > 0 && (
+          <div className="mt-12">
+            <p className="eyebrow">This session</p>
+            <div className="mt-4">
               {results.map((r, i) => (
-                <Card key={i}>
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-start gap-3">
-                      <div className="h-9 w-9 rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
-                        <Video className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h4 className="font-semibold text-sm">{r.title}</h4>
-                        <p className="text-xs text-muted-foreground">{new Date(r.at).toLocaleString()}</p>
-                      </div>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setResults((rs) => rs.filter((_, idx) => idx !== i))}>
-                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Button>
+                <article key={r.at} className="rule-top py-6 first:border-t-0 first:pt-0">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <h2 className="text-[15px] font-semibold tracking-tight">{r.title}</h2>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <time className="text-[11px] text-muted-foreground">
+                        {new Date(r.at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </time>
+                      <button
+                        onClick={() => setResults((rs) => rs.filter((_, idx) => idx !== i))}
+                        aria-label={`Discard ${r.title}`}
+                        className="text-muted-foreground transition-colors hover:text-rose-600"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                    <p className="text-sm text-foreground/90 leading-relaxed">{r.summary}</p>
-                    {r.actionItems.length > 0 && (
-                      <div>
-                        <h5 className="text-xs font-medium mb-1.5">Action items</h5>
-                        <ul className="space-y-1.5">
-                          {r.actionItems.map((a, j) => (
-                            <li key={j} className="flex items-start gap-2 text-sm">
-                              <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
-                              <span>{a}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                  </div>
+
+                  <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
+                    {r.summary}
+                  </p>
+
+                  {r.actionItems.length > 0 && (
+                    <ul className="mt-4 space-y-2">
+                      {r.actionItems.map((a, j) => (
+                        <li key={j} className="flex gap-3 text-sm leading-relaxed">
+                          <span className="mt-px shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+                            {String(j + 1).padStart(2, "0")}
+                          </span>
+                          <span>{a}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </article>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

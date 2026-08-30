@@ -20,7 +20,6 @@ import {
   Plug,
   MoreHorizontal,
   ArrowUpDown,
-  AlertCircle,
   Archive,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -103,66 +102,88 @@ function InboxProblemState({ problem }: { problem: InboxError }) {
   const gmailError = problem.problem === "gmail-error";
 
   return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-      <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
-        {gmailError ? (
-          <AlertCircle className="h-7 w-7 text-amber-500" />
-        ) : (
-          <Plug className="h-7 w-7 text-primary" />
-        )}
-      </div>
-
-      <h3 className="font-semibold text-lg">
-        {gmailError ? "Gmail refused the request" : reconnect ? "Reconnect your Gmail" : "Connect your Gmail"}
-      </h3>
-
-      <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+    <EmptyState
+      label={gmailError ? "Gmail said no" : "Not connected"}
+      title={
+        gmailError
+          ? "Gmail refused the request"
+          : reconnect
+            ? "Reconnect your Gmail"
+            : "Connect your Gmail"
+      }
+    >
+      <p>
         {gmailError
           ? "Your account is connected, but Google would not return your mail. The reason it gave is below — most often the Gmail API has not been enabled on the Google Cloud project this app uses."
           : reconnect
             ? "Your account is connected, but Google has stopped accepting the connection. This happens when access is revoked or the grant expires. Reconnecting takes a few seconds."
-            : "InboxPilot reads your real Gmail inbox so the AI can organize it, draft replies, and answer questions about your email. Nothing is sent without your say-so."}
+            : "InboxPilot reads your real Gmail inbox so it can sort it, draft replies, and answer questions about it. Nothing is sent without your say-so."}
       </p>
 
       {problem.detail && (
-        <p className="mt-3 max-w-md rounded-md bg-muted px-3 py-2 text-left text-[11px] font-mono text-muted-foreground break-words">
+        <p className="mt-3 border-l-2 border-border py-1 pl-3 font-mono text-[11px] leading-relaxed break-words">
           {problem.detail}
         </p>
       )}
 
       {!gmailError && (
-        <Button className="mt-5" onClick={connectGmail}>
-          <Plug className="h-4 w-4 mr-2" /> {reconnect ? "Reconnect Gmail" : "Connect Gmail"}
-        </Button>
+        <div className="mt-5">
+          <Button onClick={connectGmail}>
+            <Plug className="h-4 w-4" /> {reconnect ? "Reconnect Gmail" : "Connect Gmail"}
+          </Button>
+          <p className="mt-2.5 text-xs">
+            Google&apos;s own sign-in. Disconnect any time from Settings.
+          </p>
+        </div>
       )}
+    </EmptyState>
+  );
+}
 
-      <p className="text-[11px] text-muted-foreground mt-3 max-w-xs">
-        Uses the official Google sign-in. You can disconnect any time from
-        Settings.
-      </p>
+/**
+ * The house style for a screen with nothing on it: a mono label, a plain
+ * heading, and a paragraph inside a readable measure. No tinted icon tile —
+ * a large decorative glyph over three words of explanation is filler standing
+ * where the explanation should be.
+ */
+function EmptyState({
+  label,
+  title,
+  children,
+}: {
+  label: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="max-w-md">
+        <p className="eyebrow">{label}</p>
+        <h3 className="mt-3 text-[15px] font-semibold tracking-tight">{title}</h3>
+        <div className="mt-2 text-sm leading-relaxed text-muted-foreground">{children}</div>
+      </div>
     </div>
   );
 }
 
 function EmptyInboxState() {
   return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-      <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
-        <InboxIcon className="h-7 w-7 text-muted-foreground" />
-      </div>
-      <h3 className="font-semibold text-lg">Inbox zero</h3>
-      <p className="text-sm text-muted-foreground mt-1">
-        Your Gmail is connected but there&apos;s nothing new right now.
+    <EmptyState label="Nothing waiting" title="Inbox zero">
+      <p>
+        Gmail is connected and there is nothing new right now. Anything that arrives will be sorted
+        as it lands.
       </p>
-    </div>
+    </EmptyState>
   );
 }
 
 function LoadingState() {
   return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-      <Loader2 className="h-7 w-7 text-primary animate-spin mb-3" />
-      <p className="text-sm text-muted-foreground">Loading your inbox…</p>
+    <div className="flex h-full items-center justify-center p-8">
+      <span className="inline-flex items-center gap-2.5 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading your inbox…
+      </span>
     </div>
   );
 }
@@ -1322,15 +1343,26 @@ export function InboxView() {
         ) : selected ? (
           <EmailDetail email={selected} onClose={() => selectEmail(null)} />
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8">
-            <div className="h-14 w-14 rounded-2xl bg-primary flex items-center justify-center mb-4">
-              <Mail className="h-7 w-7 text-primary-foreground" />
-            </div>
-            <h3 className="font-semibold text-lg">Select an email</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-              Pick a message to read it, see how the AI categorizes it, and generate a tone-matched reply.
+          <EmptyState label="Nothing open" title="Pick a message">
+            <p>
+              Opening one shows the thread, why it was sorted where it was, and a draft reply if
+              you ask for one.
             </p>
-          </div>
+            <p className="mt-3">
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[11px]">j</kbd>{" "}
+              and{" "}
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[11px]">k</kbd>{" "}
+              move through the list without the mouse.{" "}
+              <button
+                type="button"
+                onClick={() => setShowShortcuts(true)}
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                The rest
+              </button>
+              .
+            </p>
+          </EmptyState>
         )}
       </div>
     </div>

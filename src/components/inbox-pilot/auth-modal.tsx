@@ -3,7 +3,7 @@
 import * as React from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, User, Loader2, ArrowRight, Github } from "lucide-react";
+import { Loader2, ArrowRight } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,13 +11,20 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Wordmark } from "./logo";
 import { useToast } from "@/hooks/use-toast";
 
+/**
+ * Log in, or make an account.
+ *
+ * One form, not two behind tabs: the fields are nearly the same and the tab
+ * strip mostly served to make a four-field dialog look like it had somewhere
+ * to navigate. What used to sit under it — a disabled "GitHub login (coming
+ * soon)" button, a promise of no credit card for software nobody is selling,
+ * and an agreement to use the app responsibly — has gone for the same reason.
+ */
 export function AuthModal({
   open,
   onOpenChange,
@@ -27,7 +34,7 @@ export function AuthModal({
   onOpenChange: (v: boolean) => void;
   defaultTab?: "login" | "signup";
 }) {
-  const [tab, setTab] = React.useState<"login" | "signup">(defaultTab);
+  const [mode, setMode] = React.useState<"login" | "signup">(defaultTab);
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [name, setName] = React.useState("");
@@ -36,14 +43,16 @@ export function AuthModal({
   const router = useRouter();
 
   React.useEffect(() => {
-    if (open) setTab(defaultTab);
+    if (open) setMode(defaultTab);
   }, [open, defaultTab]);
+
+  const signingUp = mode === "signup";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      if (tab === "signup") {
+      if (signingUp) {
         const res = await fetch("/api/auth/signup", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -52,24 +61,20 @@ export function AuthModal({
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Signup failed");
       }
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      });
+      const result = await signIn("credentials", { email, password, redirect: false });
       if (!result || result.error) {
         throw new Error(
           result?.error === "CredentialsSignin"
-            ? "Invalid email or password"
+            ? "That email and password don't match an account here."
             : result?.error || "Login failed"
         );
       }
-      toast({ title: tab === "signup" ? "Account created" : "Welcome back" });
+      toast({ title: signingUp ? "Account created" : "Welcome back" });
       onOpenChange(false);
       router.refresh();
     } catch (err) {
       toast({
-        title: "Authentication error",
+        title: signingUp ? "Couldn't create the account" : "Couldn't log you in",
         description: String(err instanceof Error ? err.message : err),
         variant: "destructive",
       });
@@ -80,144 +85,87 @@ export function AuthModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <div className="flex justify-center mb-2">
-            <Wordmark />
-          </div>
-          <DialogTitle className="text-center">
-            {tab === "login" ? "Welcome back" : "Create your account"}
+      <DialogContent className="sm:max-w-[26rem]">
+        <DialogHeader className="space-y-1.5">
+          <DialogTitle className="display text-[1.75rem]">
+            {signingUp ? "Make an account" : "Welcome back"}
           </DialogTitle>
-          <DialogDescription className="text-center">
-            {tab === "login"
-              ? "Log in to your AI email."
-              : "Free forever. No credit card."}
+          <DialogDescription className="text-sm leading-relaxed">
+            {signingUp
+              ? "The account lives in this deployment's own database. Gmail comes next, and separately."
+              : "The account, not your Google one — that stays with Google."}
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "login" | "signup")}>
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="login">Log in</TabsTrigger>
-            <TabsTrigger value="signup">Sign up</TabsTrigger>
-          </TabsList>
+        <form onSubmit={submit} className="mt-1 space-y-3.5">
+          {signingUp && (
+            <div className="space-y-1.5">
+              <Label htmlFor="auth-name" className="text-xs font-normal text-muted-foreground">
+                Name <span className="text-muted-foreground/70">— optional</span>
+              </Label>
+              <Input
+                id="auth-name"
+                type="text"
+                autoComplete="name"
+                placeholder="Alex Rivera"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+          )}
 
-          <TabsContent value="login">
-            <form onSubmit={submit} className="space-y-3 pt-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="auth-email">Email</Label>
-                <div className="relative">
-                  <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="auth-email"
-                    type="email"
-                    required
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-8"
-                    autoFocus
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="auth-pass">Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="auth-pass"
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-8"
-                  />
-                </div>
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : null}
-                Log in
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </form>
-          </TabsContent>
+          <div className="space-y-1.5">
+            <Label htmlFor="auth-email" className="text-xs font-normal text-muted-foreground">
+              Email
+            </Label>
+            <Input
+              id="auth-email"
+              type="email"
+              required
+              autoFocus
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
 
-          <TabsContent value="signup">
-            <form onSubmit={submit} className="space-y-3 pt-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="auth-name">Name (optional)</Label>
-                <div className="relative">
-                  <User className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="auth-name"
-                    type="text"
-                    placeholder="Your name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="pl-8"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="auth-email-s">Email</Label>
-                <div className="relative">
-                  <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="auth-email-s"
-                    type="email"
-                    required
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-8"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="auth-pass-s">Password (min 8 chars)</Label>
-                <div className="relative">
-                  <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="auth-pass-s"
-                    type="password"
-                    required
-                    minLength={8}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-8"
-                  />
-                </div>
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : null}
-                Create account
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </form>
-          </TabsContent>
-        </Tabs>
+          <div className="space-y-1.5">
+            <Label htmlFor="auth-pass" className="text-xs font-normal text-muted-foreground">
+              Password
+              {signingUp && (
+                <span className="text-muted-foreground/70"> — at least 8 characters</span>
+              )}
+            </Label>
+            <Input
+              id="auth-pass"
+              type="password"
+              required
+              minLength={signingUp ? 8 : undefined}
+              autoComplete={signingUp ? "new-password" : "current-password"}
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
 
-        <div className="pt-2 text-center">
-          <Button variant="outline" className="w-full" disabled>
-            <Github className="h-4 w-4 mr-2" /> GitHub login (coming soon)
+          <Button type="submit" className="mt-1 w-full" disabled={loading}>
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {signingUp ? "Create account" : "Log in"}
+            <ArrowRight className="h-4 w-4" />
           </Button>
-          <p className="text-[11px] text-muted-foreground mt-2">
-            By continuing you agree to use InboxPilot responsibly.
-          </p>
-        </div>
+        </form>
+
+        <p className="text-center text-xs text-muted-foreground">
+          {signingUp ? "Been here before? " : "No account yet? "}
+          <button
+            type="button"
+            className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+            onClick={() => setMode(signingUp ? "login" : "signup")}
+          >
+            {signingUp ? "Log in" : "Make one"}
+          </button>
+        </p>
       </DialogContent>
     </Dialog>
   );

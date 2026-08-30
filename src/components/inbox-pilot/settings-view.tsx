@@ -3,27 +3,21 @@
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  User,
   Save,
   RotateCcw,
-  ShieldCheck,
   Trash2,
-  KeyRound,
   Plug,
-  Plug2,
   Loader2,
   Check,
-  AlertCircle,
   Sun,
   Moon,
   Monitor,
-  Palette,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { setAccent } from "@/components/theme-provider";
 import { useStore } from "@/lib/store";
 import { CATEGORIES, DEFAULT_TONE } from "@/lib/defaults";
-import type { ToneProfile } from "@/lib/types";
+import type { HealthResponse, ToneProfile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,10 +30,45 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { CategoryBadge } from "./category-badge";
+
+/**
+ * Settings as one ruled page rather than five stacked cards.
+ *
+ * Every section used to be a bordered card whose title wore its own tinted
+ * icon, which meant five boxes, five icons and five colours competing to be
+ * looked at first on a page where the only thing that varies is the controls.
+ * A label column and a hairline do the same separating for none of the noise.
+ */
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rule-top py-8 first:border-t-0 first:pt-0 md:grid md:grid-cols-[12.5rem_1fr] md:gap-10">
+      <div className="md:pt-0.5">
+        <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
+        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{description}</p>
+      </div>
+      <div className="mt-4 min-w-0 md:mt-0">{children}</div>
+    </section>
+  );
+}
+
+/** The one-line form label used throughout this page. */
+function FieldLabel({ htmlFor, children }: { htmlFor?: string; children: React.ReactNode }) {
+  return (
+    <Label htmlFor={htmlFor} className="text-xs font-normal text-muted-foreground">
+      {children}
+    </Label>
+  );
+}
 
 function phrasesToText(arr: string[]) {
   return arr.join("\n");
@@ -69,7 +98,10 @@ function ToneForm() {
       });
       if (!res.ok) throw new Error("save failed");
       qc.invalidateQueries({ queryKey: ["tone"] });
-      toast({ title: "Tone profile saved", description: "New drafts will be written in this voice. Synced to your account." });
+      toast({
+        title: "Tone profile saved",
+        description: "New drafts will be written in this voice. Synced to your account.",
+      });
     } catch (e) {
       toast({ title: "Saved locally only", description: String(e), variant: "destructive" });
     }
@@ -81,86 +113,118 @@ function ToneForm() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <User className="h-4 w-4 text-primary" /> Tone profile
-        </CardTitle>
-        <CardDescription>
-          InboxPilot learns your voice. These settings shape every draft — refine any draft by hand before sending.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="name">Your name</Label>
-            <Input id="name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. Alex Rivera" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="role">Role / title</Label>
-            <Input id="role" value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} placeholder="e.g. Senior Recruiter" />
-          </div>
-        </div>
-
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="tone">Describe your tone</Label>
-          <Input id="tone" value={draft.tone} onChange={(e) => setDraft({ ...draft, tone: e.target.value })} placeholder="e.g. warm, direct, concise" />
+          <FieldLabel htmlFor="name">Your name</FieldLabel>
+          <Input
+            id="name"
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            placeholder="Alex Rivera"
+          />
         </div>
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor="role">Role or title</FieldLabel>
+          <Input
+            id="role"
+            value={draft.role}
+            onChange={(e) => setDraft({ ...draft, role: e.target.value })}
+            placeholder="Senior Recruiter"
+          />
+        </div>
+      </div>
 
-        <div className="grid sm:grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <Label>Length</Label>
-            <Select value={draft.length} onValueChange={(v) => setDraft({ ...draft, length: v as ToneProfile["length"] })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="short">Short</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="long">Long</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Formality</Label>
-            <Select value={draft.formality} onValueChange={(v) => setDraft({ ...draft, formality: v as ToneProfile["formality"] })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="casual">Casual</SelectItem>
-                <SelectItem value="neutral">Neutral</SelectItem>
-                <SelectItem value="formal">Formal</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="sig">Sign-off</Label>
-            <Input id="sig" value={draft.signature} onChange={(e) => setDraft({ ...draft, signature: e.target.value })} placeholder="Your name" />
-          </div>
-        </div>
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="tone">How you sound</FieldLabel>
+        <Input
+          id="tone"
+          value={draft.tone}
+          onChange={(e) => setDraft({ ...draft, tone: e.target.value })}
+          placeholder="warm, direct, concise"
+        />
+      </div>
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="phrases">Phrases you often use (one per line)</Label>
-            <Textarea id="phrases" value={phrasesToText(draft.samplePhrases)} onChange={(e) => setDraft({ ...draft, samplePhrases: textToPhrases(e.target.value) })} className="min-h-[100px]" placeholder={"Happy to jump on a quick call\nLet me know what works"} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="avoid">Phrases to avoid (one per line)</Label>
-            <Textarea id="avoid" value={phrasesToText(draft.avoid)} onChange={(e) => setDraft({ ...draft, avoid: textToPhrases(e.target.value) })} className="min-h-[100px]" placeholder={"Hope this email finds you well"} />
-          </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <FieldLabel>Length</FieldLabel>
+          <Select
+            value={draft.length}
+            onValueChange={(v) => setDraft({ ...draft, length: v as ToneProfile["length"] })}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="short">Short</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="long">Long</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
+        <div className="space-y-1.5">
+          <FieldLabel>Formality</FieldLabel>
+          <Select
+            value={draft.formality}
+            onValueChange={(v) => setDraft({ ...draft, formality: v as ToneProfile["formality"] })}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="casual">Casual</SelectItem>
+              <SelectItem value="neutral">Neutral</SelectItem>
+              <SelectItem value="formal">Formal</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor="sig">Sign-off</FieldLabel>
+          <Input
+            id="sig"
+            value={draft.signature}
+            onChange={(e) => setDraft({ ...draft, signature: e.target.value })}
+            placeholder="Alex"
+          />
+        </div>
+      </div>
 
-        <div className="flex items-center gap-2 pt-2">
-          <Button onClick={save} disabled={!dirty}>
-            <Save className="h-4 w-4 mr-2" /> Save profile
-          </Button>
-          <Button variant="outline" onClick={reset}>
-            <RotateCcw className="h-4 w-4 mr-2" /> Reset to defaults
-          </Button>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor="phrases">Phrases you use — one per line</FieldLabel>
+          <Textarea
+            id="phrases"
+            value={phrasesToText(draft.samplePhrases)}
+            onChange={(e) => setDraft({ ...draft, samplePhrases: textToPhrases(e.target.value) })}
+            className="min-h-[104px]"
+            placeholder={"Happy to jump on a quick call\nLet me know what works"}
+          />
         </div>
-      </CardContent>
-    </Card>
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor="avoid">Phrases to avoid — one per line</FieldLabel>
+          <Textarea
+            id="avoid"
+            value={phrasesToText(draft.avoid)}
+            onChange={(e) => setDraft({ ...draft, avoid: textToPhrases(e.target.value) })}
+            className="min-h-[104px]"
+            placeholder={"Hope this email finds you well"}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 pt-1">
+        <Button onClick={save} disabled={!dirty}>
+          <Save className="h-4 w-4" /> Save profile
+        </Button>
+        <Button variant="ghost" onClick={reset}>
+          <RotateCcw className="h-4 w-4" /> Reset
+        </Button>
+      </div>
+    </div>
   );
 }
 
-function AccountsCard() {
+function Accounts() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data, isLoading } = useQuery({
@@ -168,7 +232,10 @@ function AccountsCard() {
     queryFn: async () => {
       const res = await fetch("/api/accounts");
       if (!res.ok) throw new Error("failed");
-      return (await res.json()) as { accounts: { id: string; provider: string; email: string; createdAt: string }[]; gmailConfigured: boolean };
+      return (await res.json()) as {
+        accounts: { id: string; provider: string; email: string; createdAt: string }[];
+        gmailConfigured: boolean;
+      };
     },
   });
 
@@ -177,18 +244,30 @@ function AccountsCard() {
       const res = await fetch("/api/gmail/connect");
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        toast({ title: "Gmail not configured", description: d.error ?? "Set GOOGLE_CLIENT_ID/SECRET (see README).", variant: "destructive" });
+        toast({
+          title: "Gmail not configured",
+          description: d.error ?? "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET — see the README.",
+          variant: "destructive",
+        });
         return;
       }
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
+      const body = await res.json();
+      if (body.url) window.location.href = body.url;
     } catch (e) {
-      toast({ title: "Couldn't start Gmail connect", description: String(e), variant: "destructive" });
+      toast({
+        title: "Couldn't start Gmail connect",
+        description: String(e),
+        variant: "destructive",
+      });
     }
   };
 
   const disconnect = async (id: string) => {
-    await fetch("/api/accounts", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+    await fetch("/api/accounts", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
     qc.invalidateQueries({ queryKey: ["accounts"] });
     qc.invalidateQueries({ queryKey: ["emails"] });
     toast({ title: "Gmail disconnected" });
@@ -197,115 +276,157 @@ function AccountsCard() {
   const accounts = data?.accounts ?? [];
   const gmailConfigured = data?.gmailConfigured ?? false;
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Plug className="h-4 w-4 text-primary" /> Email accounts
-        </CardTitle>
-        <CardDescription>
-          Connect your Gmail to let InboxPilot read and draft your email. Outlook and IMAP are on the roadmap.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
-        ) : accounts.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-4 text-center">
-            <Plug2 className="h-6 w-6 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground mb-3">No email accounts connected yet.</p>
-            <Button onClick={connect}>
-              <Plug className="h-4 w-4 mr-2" /> Connect Gmail
-            </Button>
-            {!gmailConfigured && (
-              <p className="text-[11px] text-amber-600 mt-2 inline-flex items-center gap-1 justify-center">
-                <AlertCircle className="h-3 w-3" /> Gmail OAuth not configured on the server. See README.
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {accounts.map((a) => (
-              <div key={a.id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
-                <div className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-600 flex items-center justify-center shrink-0">
-                  <Check className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">{a.email}</div>
-                  <div className="text-[11px] text-muted-foreground capitalize">{a.provider} · connected {new Date(a.createdAt).toLocaleDateString()}</div>
-                </div>
-                <Button variant="ghost" size="sm" className="h-7 text-rose-600 hover:text-rose-700" onClick={() => disconnect(a.id)}>
-                  Disconnect
-                </Button>
-              </div>
-            ))}
-            <Button variant="outline" size="sm" className="w-full" onClick={connect}>
-              <Plug className="h-3.5 w-3.5 mr-1.5" /> Connect another
-            </Button>
-          </div>
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
+
+  if (accounts.length === 0) {
+    return (
+      <div>
+        <p className="text-sm text-muted-foreground">Nothing connected yet.</p>
+        <Button className="mt-3" onClick={connect} disabled={!gmailConfigured}>
+          <Plug className="h-4 w-4" /> Connect Gmail
+        </Button>
+        {!gmailConfigured && (
+          <p className="mt-2.5 text-xs leading-relaxed text-muted-foreground">
+            This deployment has no Google OAuth client, so there is nothing to sign in to. Set{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11.5px] text-foreground">
+              GOOGLE_CLIENT_ID
+            </code>{" "}
+            and{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11.5px] text-foreground">
+              GOOGLE_CLIENT_SECRET
+            </code>
+            , then restart.
+          </p>
         )}
-      </CardContent>
-    </Card>
-  );
-}
+      </div>
+    );
+  }
 
-function CategoriesCard() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          Inbox categories
-        </CardTitle>
-        <CardDescription>
-          Every email is auto-sorted into one of these buckets. Override any email&apos;s category from the inbox — the AI respects your choice.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid sm:grid-cols-2 gap-2">
-        {CATEGORIES.map((c) => (
-          <div key={c.id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
-            <CategoryBadge id={c.id} />
-            <span className="text-xs text-muted-foreground">{c.description}</span>
+    <div className="space-y-2">
+      {accounts.map((a) => (
+        <div key={a.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
+            <Check className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{a.email}</div>
+            <div className="text-[11px] capitalize text-muted-foreground">
+              {a.provider} · connected {new Date(a.createdAt).toLocaleDateString()}
+            </div>
           </div>
-        ))}
-      </CardContent>
-    </Card>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-muted-foreground hover:text-rose-600"
+            onClick={() => disconnect(a.id)}
+          >
+            Disconnect
+          </Button>
+        </div>
+      ))}
+      <Button variant="outline" size="sm" onClick={connect}>
+        <Plug className="h-3.5 w-3.5" /> Connect another
+      </Button>
+    </div>
   );
 }
 
-function PrivacyCard() {
+/**
+ * What the server is actually configured to talk to. Stated rather than
+ * described: this page used to claim AI ran "through a shared Grok key (if
+ * configured) or the built-in fallback", and there is no shared key and no
+ * fallback — there is one endpoint, and it is whichever one this deployment
+ * was given.
+ */
+function ModelSummary() {
+  const { data } = useQuery<HealthResponse>({
+    queryKey: ["ai-health"],
+    queryFn: async () => {
+      const res = await fetch("/api/ai/health");
+      if (!res.ok) throw new Error("health check failed");
+      return res.json();
+    },
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  if (!data) {
+    return <p className="text-sm text-muted-foreground">Checking…</p>;
+  }
+
+  if (!data.ready) {
+    return (
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        No key is set, so sorting, drafting and questions are off. The inbox itself still works. Set{" "}
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11.5px] text-foreground">
+          AI_API_KEY
+        </code>{" "}
+        on the server to turn them on.
+      </p>
+    );
+  }
+
+  return (
+    <dl className="text-sm">
+      <div className="flex gap-4 py-1.5">
+        <dt className="w-20 shrink-0 text-muted-foreground">Endpoint</dt>
+        <dd className="font-mono text-[12.5px]">{data.host}</dd>
+      </div>
+      <div className="flex gap-4 py-1.5">
+        <dt className="w-20 shrink-0 text-muted-foreground">Model</dt>
+        <dd className="font-mono text-[12.5px]">{data.model}</dd>
+      </div>
+      {data.reasoningEffort && (
+        <div className="flex gap-4 py-1.5">
+          <dt className="w-20 shrink-0 text-muted-foreground">Effort</dt>
+          <dd className="font-mono text-[12.5px]">{data.reasoningEffort}</dd>
+        </div>
+      )}
+    </dl>
+  );
+}
+
+function Categories() {
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-2">
+      {CATEGORIES.map((c) => (
+        <div key={c.id} className="flex items-center gap-2.5 py-1">
+          <CategoryBadge id={c.id} />
+          <span className="truncate text-xs text-muted-foreground">{c.description}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LocalData() {
   const clearLocalData = useStore((s) => s.clearLocalData);
   const { toast } = useToast();
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ShieldCheck className="h-4 w-4 text-emerald-500" /> Privacy & data
-        </CardTitle>
-        <CardDescription>
-          Your email is fetched directly from Gmail via your own deployment. InboxPilot stores only your account, tone profile, and Gmail OAuth tokens.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-1.5">
-          <div className="flex items-center gap-2 font-medium">
-            <KeyRound className="h-4 w-4 text-primary" /> AI provider
-          </div>
-          <p className="text-xs text-muted-foreground">
-            AI runs through a shared Grok key (if configured) or the built-in fallback. All AI endpoints require you to be logged in.
-          </p>
-        </div>
-        <Separator />
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium">Clear local data</div>
-            <p className="text-xs text-muted-foreground">Removes drafts, overrides, and chat history from this browser.</p>
-          </div>
-          <Button variant="outline" size="sm" className="text-rose-600 hover:text-rose-700" onClick={() => { clearLocalData(); toast({ title: "Local data cleared" }); }}>
-            <Trash2 className="h-4 w-4 mr-1.5" /> Clear
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="flex items-start justify-between gap-4">
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Drafts you have not sent, category overrides and chat history live in this browser only.
+        Clearing them does not touch Gmail.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="shrink-0 text-muted-foreground hover:text-rose-600"
+        onClick={() => {
+          clearLocalData();
+          toast({ title: "Local data cleared" });
+        }}
+      >
+        <Trash2 className="h-3.5 w-3.5" /> Clear
+      </Button>
+    </div>
   );
 }
 
@@ -318,10 +439,17 @@ const ACCENTS = [
   { id: "slate", label: "Slate", color: "oklch(0.45 0.02 260)" },
 ] as const;
 
-function AppearanceCard() {
+const THEMES = [
+  { id: "light", label: "Light", icon: Sun },
+  { id: "dark", label: "Dark", icon: Moon },
+  { id: "system", label: "System", icon: Monitor },
+] as const;
+
+function Appearance() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   const [accent, setLocalAccent] = React.useState("emerald");
+
   React.useEffect(() => {
     setMounted(true);
     setLocalAccent(localStorage.getItem("inboxpilot-accent") || "emerald");
@@ -332,81 +460,101 @@ function AppearanceCard() {
     setAccent(id);
   };
 
-  const themes = [
-    { id: "light", label: "Light", icon: Sun },
-    { id: "dark", label: "Dark", icon: Moon },
-    { id: "system", label: "System", icon: Monitor },
-  ] as const;
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Palette className="h-4 w-4 text-primary" /> Appearance
-        </CardTitle>
-        <CardDescription>
-          Choose your theme and accent color. Changes apply instantly.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="space-y-2">
-          <Label>Theme</Label>
-          <div className="grid grid-cols-3 gap-2">
-            {themes.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTheme(t.id)}
-                className={cn(
-                  "flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-colors",
-                  mounted && theme === t.id
-                    ? "border-primary bg-primary/5 text-primary"
-                    : "border-border hover:bg-muted/50"
-                )}
-              >
-                <t.icon className="h-4 w-4" />
-                <span className="text-xs font-medium">{t.label}</span>
-              </button>
-            ))}
-          </div>
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <FieldLabel>Theme</FieldLabel>
+        <div className="inline-flex rounded-lg border p-0.5">
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-[0.3rem] px-3 py-1.5 text-xs font-medium transition-colors",
+                mounted && theme === t.id
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <t.icon className="h-3.5 w-3.5" />
+              {t.label}
+            </button>
+          ))}
         </div>
+      </div>
 
-        <div className="space-y-2">
-          <Label>Accent color</Label>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-            {ACCENTS.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => changeAccent(a.id)}
-                className={cn(
-                  "flex flex-col items-center gap-1.5 rounded-lg border p-2.5 transition-colors",
-                  mounted && accent === a.id
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:bg-muted/50"
-                )}
-              >
-                <span
-                  className="h-6 w-6 rounded-full ring-2 ring-offset-2 ring-offset-background"
-                  style={{ backgroundColor: a.color, boxShadow: mounted && accent === a.id ? `0 0 0 2px ${a.color}` : "none" }}
-                />
-                <span className="text-[11px] font-medium">{a.label}</span>
-              </button>
-            ))}
-          </div>
+      <div className="space-y-2">
+        <FieldLabel>Accent</FieldLabel>
+        <div className="flex flex-wrap gap-2">
+          {ACCENTS.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => changeAccent(a.id)}
+              aria-label={a.label}
+              aria-pressed={mounted && accent === a.id}
+              title={a.label}
+              className={cn(
+                "h-7 w-7 rounded-full transition-transform hover:scale-105",
+                mounted &&
+                  accent === a.id &&
+                  "ring-2 ring-foreground/70 ring-offset-2 ring-offset-background"
+              )}
+              style={{ backgroundColor: a.color }}
+            />
+          ))}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
 export function SettingsView() {
   return (
-    <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
-      <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-4">
-        <AppearanceCard />
-        <AccountsCard />
-        <ToneForm />
-        <CategoriesCard />
-        <PrivacyCard />
+    <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
+      <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 md:py-12">
+        <p className="eyebrow">Settings</p>
+        <h1 className="display mt-3 text-4xl">How it behaves, and who it talks to.</h1>
+
+        <div className="mt-10 md:mt-12">
+          <Section
+            title="Email accounts"
+            description="Google's own sign-in. Revocable from your Google account at any time."
+          >
+            <Accounts />
+          </Section>
+
+          <Section
+            title="Model"
+            description="Set on the server, not here — so it is the same for every session on this deployment."
+          >
+            <ModelSummary />
+          </Section>
+
+          <Section
+            title="Your voice"
+            description="Shapes every draft. Nothing is sent without you reading it first."
+          >
+            <ToneForm />
+          </Section>
+
+          <Section
+            title="Categories"
+            description="Every message lands in one of these. Override any of them from the inbox."
+          >
+            <Categories />
+          </Section>
+
+          <Section title="Appearance" description="Applies immediately, and only in this browser.">
+            <Appearance />
+          </Section>
+
+          <Section
+            title="Local data"
+            description="What this browser is holding on to."
+          >
+            <LocalData />
+          </Section>
+        </div>
       </div>
     </div>
   );

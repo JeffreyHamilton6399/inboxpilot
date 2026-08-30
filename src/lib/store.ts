@@ -15,6 +15,13 @@ interface IPState {
   tone: ToneProfile;
   toneHydrated: boolean; // has tone been loaded from the server?
 
+  /**
+   * Whether setup has been walked past. Persisted, because the alternative is
+   * showing the setup page again on every reload to anyone who chose to skip
+   * it, which is nagging rather than onboarding.
+   */
+  setupDismissed: boolean;
+
   // per-email client-side overrides (persisted; keyed by Gmail message id)
   drafts: Record<string, string>;
   categoryOverrides: Record<string, CategoryId>;
@@ -39,6 +46,7 @@ interface IPState {
   replaceTone: (t: ToneProfile) => void;
   setToneHydrated: (b: boolean) => void;
   resetTone: () => void;
+  dismissSetup: () => void;
   clearLocalData: () => void;
 
   setDraft: (emailId: string, text: string) => void;
@@ -61,6 +69,7 @@ export const useStore = create<IPState>()(
       selectedEmailId: null,
       tone: DEFAULT_TONE,
       toneHydrated: false,
+      setupDismissed: false,
       drafts: {},
       categoryOverrides: {},
       readOverrides: {},
@@ -76,6 +85,7 @@ export const useStore = create<IPState>()(
       replaceTone: (t) => set({ tone: t, toneHydrated: true }),
       setToneHydrated: (b) => set({ toneHydrated: b }),
       resetTone: () => set({ tone: DEFAULT_TONE }),
+      dismissSetup: () => set({ setupDismissed: true }),
       clearLocalData: () =>
         set({
           drafts: {},
@@ -129,6 +139,7 @@ export const useStore = create<IPState>()(
         activeView: s.activeView,
         selectedEmailId: s.selectedEmailId,
         tone: s.tone,
+        setupDismissed: s.setupDismissed,
         drafts: s.drafts,
         categoryOverrides: s.categoryOverrides,
         readOverrides: s.readOverrides,

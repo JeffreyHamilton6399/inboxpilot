@@ -30,6 +30,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { HealthResponse, ToneProfile } from "@/lib/types";
+import { Onboarding } from "./onboarding";
 import { InboxView } from "./inbox-view";
 import { ChatView } from "./chat-view";
 import { MeetingsView } from "./meetings-view";
@@ -175,10 +176,51 @@ function AccountMenu() {
   );
 }
 
+/**
+ * Whether to show setup instead of the app.
+ *
+ * The decision is made once, when the account list first arrives, and then
+ * held: connecting Gmail during setup would otherwise satisfy the condition
+ * mid-flow and yank the page out from under the person still reading step
+ * three. Leaving is something they do, not something that happens to them.
+ */
+function useFirstRun() {
+  const dismissed = useStore((s) => s.setupDismissed);
+  const dismissSetup = useStore((s) => s.dismissSetup);
+  const [showing, setShowing] = React.useState<boolean | null>(null);
+
+  const { data, isSuccess } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async () => {
+      const res = await fetch("/api/accounts");
+      if (!res.ok) throw new Error("failed");
+      return (await res.json()) as { accounts: unknown[] };
+    },
+  });
+
+  React.useEffect(() => {
+    if (showing !== null || !isSuccess) return;
+    setShowing(!dismissed && (data?.accounts.length ?? 0) === 0);
+  }, [showing, isSuccess, data, dismissed]);
+
+  return {
+    // Undecided reads as "not yet" — a flash of the setup page for anyone who
+    // finished it months ago is worse than a beat of the inbox loading.
+    showing: showing === true,
+    leave: () => {
+      dismissSetup();
+      setShowing(false);
+    },
+  };
+}
+
 export function Dashboard() {
   useToneSync();
+  const firstRun = useFirstRun();
   const activeView = useStore((s) => s.activeView);
   const setView = useStore((s) => s.setView);
+
+  if (firstRun.showing) return <Onboarding onDone={firstRun.leave} />;
 
   // The app is the inbox. Everything else is somewhere you go and come back
   // from, so the only navigation on screen is a way back — and it appears
