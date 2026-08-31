@@ -400,6 +400,7 @@ function SortWithAI({ emails }: { emails: Email[] }) {
             emails: batch.map((e) => ({
               id: e.id,
               from: `${e.from.name} <${e.from.email}>`,
+              to: e.to,
               subject: e.subject,
               preview: e.preview,
             })),
@@ -524,6 +525,10 @@ function EmailRow({
 function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolean }) {
   // Files live only until the reply is sent; nothing is uploaded ahead of time.
   const [files, setFiles] = React.useState<File[]>([]);
+  // Same query key as the Conversation above, so this is the cache, not a
+  // second round trip. A reply written without the thread re-asks questions
+  // the thread already answered.
+  const { data: threadData } = useThread(email.threadId || email.id);
   const [dragging, setDragging] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
   const tone = useStore((s) => s.tone);
@@ -557,6 +562,13 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
           email: { from: email.from.name, subject: email.subject, body: email.body, preview: email.preview },
           tone: tone as ToneProfile,
           draft: current || undefined,
+          thread: threadData?.messages?.map((m) => ({
+            from: m.from.name || m.from.email,
+            receivedAt: m.receivedAt,
+            body: m.body,
+            fromMe: m.fromMe,
+          })),
+          now: new Date().toISOString(),
         }),
       });
       if (res.status === 401) {

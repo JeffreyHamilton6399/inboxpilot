@@ -4,7 +4,8 @@ import * as React from "react";
 import { Send, Trash2, Loader2, ArrowUpRight } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useEmails } from "@/lib/use-emails";
-import { SUGGESTED_CHAT_PROMPTS, CATEGORY_MAP } from "@/lib/defaults";
+import { SUGGESTED_CHAT_PROMPTS } from "@/lib/defaults";
+import { buildInboxContext } from "@/lib/inbox-context";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -67,28 +68,23 @@ export function ChatView() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Build context from the real inbox (if connected).
-    let context = "";
-    if (emails && emails.length > 0) {
-      const ranked = [...emails].sort((a, b) => {
-        const score = (e: (typeof emails)[number]) =>
-          (e.category === "to-respond" ? 4 : 0) + (e.unread ? 2 : 0) + (e.starred ? 1 : 0);
-        return score(b) - score(a);
-      });
-      context = ranked
-        .slice(0, 12)
-        .map(
-          (e) =>
-            `• from ${e.from.name} <${e.from.email}> | category: ${CATEGORY_MAP[e.category].label} | subject: ${e.subject} | preview: ${e.preview}`
-        )
-        .join("\n");
-    }
+    // Everything loaded, newest first, with the arrival times and read state
+    // that questions about waiting and recency actually turn on. Ranking the
+    // top twelve by a local heuristic threw away exactly the messages that
+    // "what has been sitting here longest" needed, and carried no dates at all.
+    const context = emails ? buildInboxContext(emails, { now: new Date() }) : "";
 
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: history, context: context || undefined }),
+        body: JSON.stringify({
+          messages: history,
+          context: context || undefined,
+          // The reader's clock, not the server's: "today" is a question about
+          // where they are sitting.
+          now: new Date().toISOString(),
+        }),
         signal: controller.signal,
       });
       if (res.status === 401) {
@@ -105,9 +101,6 @@ export function ChatView() {
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         if (chunk) appendChat(aiId, chunk);
-      }
-      if (!emails || emails.length === 0) {
-        appendChat(aiId, "\n\n_(Connect your Gmail in the Inbox tab for inbox-aware answers.)_");
       }
     } catch (e) {
       if ((e as Error).name === "AbortError") {

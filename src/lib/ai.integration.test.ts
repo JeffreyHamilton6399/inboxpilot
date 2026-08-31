@@ -39,7 +39,7 @@ live("against the configured provider", () => {
             "Original email from Sarah Chen:\nSubject: Q3 roadmap review\n\nCan you take a look at the roadmap doc before Thursday? Happy to walk through it.\n\n---\nWrite the reply.",
         },
       ],
-      { temperature: 0.7, maxTokens: 600 }
+      { temperature: 0.6, maxTokens: 1400 }
     );
 
     expect(draft.length).toBeGreaterThan(20);
@@ -63,7 +63,7 @@ live("against the configured provider", () => {
             "From: Sarah Chen <sarah@example.com>\nSubject: Can you review the Q3 doc?\nPreview: Need your sign-off before Thursday.\nBody:\nCould you take a look and let me know?",
         },
       ],
-      { temperature: 0.2, maxTokens: 512 }
+      { temperature: 0.2, maxTokens: 900 }
     );
 
     console.log(`  category: ${result.category} — ${result.reason}`);
@@ -85,7 +85,7 @@ live("against the configured provider", () => {
             "Meeting: Q3 planning\n\nTranscript:\nAlex: We need the pricing page done by the 14th.\nSarah: I'll draft copy by Friday.\nAlex: I'll get design to review it Monday.",
         },
       ],
-      { temperature: 0.3, maxTokens: 500 }
+      { temperature: 0.3, maxTokens: 1200 }
     );
 
     expect(typeof result.summary).toBe("string");
@@ -123,7 +123,7 @@ live("against the configured provider", () => {
         { role: "system", content: "You are InboxPilot. Be concise." },
         { role: "user", content: "List three things sitting in an inbox that need a reply. One line each." },
       ],
-      { temperature: 0.6, maxTokens: 900 }
+      { temperature: 0.25, maxTokens: 1600 }
     )) {
       chunks.push(c);
     }

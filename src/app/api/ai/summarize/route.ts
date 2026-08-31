@@ -43,7 +43,7 @@ ${transcriptText}`,
     const result = await chatJSON<{
       summary?: string;
       actionItems?: string[];
-    }>([system, user], { temperature: 0.3, maxTokens: 500 });
+    }>([system, user], { temperature: 0.3, maxTokens: 1200 });
 
     return NextResponse.json({
       summary: result.summary ?? "",
