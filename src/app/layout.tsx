@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -15,32 +15,44 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Display only — headlines on the landing page and the setup flow. The
+// interface itself stays in Geist, where a serif at 13px would cost more in
+// legibility than it returns in character.
+const displaySerif = Instrument_Serif({
+  variable: "--font-display-serif",
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "InboxPilot — Your AI email",
+  title: "InboxPilot — an assistant for the inbox you already have",
   description:
-    "InboxPilot is your AI email client. Log in, connect Gmail, and let AI organize your inbox, draft replies in your voice, and answer questions about your email. Open source and free.",
+    "InboxPilot connects to your Gmail, sorts what arrives, drafts replies in the way you write, and answers questions about your mail. MIT licensed, and it runs on your own deployment against a model key you supply.",
   keywords: [
     "InboxPilot",
     "AI email client",
     "email assistant",
+    "self-hosted email",
     "open source email",
-    "AI inbox",
+    "Gmail assistant",
   ],
   authors: [{ name: "InboxPilot" }],
   icons: {
     icon: "/icon.svg",
   },
   openGraph: {
-    title: "InboxPilot — Your AI email",
+    title: "InboxPilot — an assistant for the inbox you already have",
     description:
-      "Log in, connect Gmail, and let AI organize your inbox, draft replies, and answer questions about your email. Free and open source.",
+      "Sorts what arrives, drafts replies in the way you write, answers questions about your mail. Your deployment, your Google client, your model key.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "InboxPilot — Your AI email",
+    title: "InboxPilot — an assistant for the inbox you already have",
     description:
-      "Your AI email client. Connect Gmail, organize, draft, and chat with your inbox.",
+      "Sorts what arrives, drafts replies in the way you write, answers questions about your mail. Your deployment, your model key.",
   },
 };
 
@@ -50,10 +62,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
-      >
+    /*
+     * The font variables belong on <html>, not on <body>.
+     *
+     * globals.css resolves them in an `@theme inline` block, which is
+     * evaluated at :root — so while next/font declared them one level down on
+     * <body>, --font-sans resolved to nothing and the entire site rendered in
+     * whatever sans the browser happened to default to. Geist was loaded on
+     * every page and used on none of them.
+     */
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} ${displaySerif.variable}`}
+    >
+      <body className="antialiased bg-background text-foreground">
         <ThemeProvider
           attribute="class"
           defaultTheme="light"

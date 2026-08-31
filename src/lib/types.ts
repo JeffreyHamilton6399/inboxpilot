@@ -21,8 +21,22 @@ export interface Category {
 }
 
 /** A file on a message. Bytes are fetched on demand from our own route. */
+/**
+ * What a message can be asked to become. Everything is optional; anything
+ * left out is left alone. Lives here rather than in `gmail.ts` because the
+ * client sends these too, and `gmail.ts` is server-only.
+ */
+export interface MessageChange {
+  starred?: boolean;
+  unread?: boolean;
+  /** True archives (drops INBOX), false moves it back to the inbox. */
+  archived?: boolean;
+}
+
 export interface Attachment {
   id: string;
+  /** Position in the message's MIME tree — what the URLs are keyed on. */
+  partId: string;
   filename: string;
   mimeType: string;
   size: number;

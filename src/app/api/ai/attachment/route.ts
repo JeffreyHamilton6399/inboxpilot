@@ -42,8 +42,17 @@ export async function POST(req: Request) {
     }
 
     const found = await getAttachment(gmailAuth.accessToken, messageId, attachmentId);
-    if (!found) {
-      return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
+    if (!found.ok) {
+      console.error("[ai/attachment] miss:", found.reason, "message", messageId);
+      return NextResponse.json(
+        {
+          error:
+            found.reason === "no-such-part"
+              ? "That file is no longer part of this message."
+              : "Gmail returned no data for that file.",
+        },
+        { status: 404 }
+      );
     }
 
     const extracted = await extractAttachmentText(found.meta.mimeType, found.data);

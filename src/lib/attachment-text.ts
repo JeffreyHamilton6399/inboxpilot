@@ -1,4 +1,5 @@
 import "server-only";
+import { isTextual } from "@/lib/readable-types";
 
 /**
  * Turns an attachment into text a chat model can read.
@@ -17,18 +18,6 @@ export type Extraction =
   | { status: "ok"; text: string; pages?: number; truncated: boolean }
   | { status: "unsupported"; reason: string }
   | { status: "empty"; reason: string };
-
-const TEXT_TYPES = new Set([
-  "application/json",
-  "application/xml",
-  "application/x-yaml",
-  "application/javascript",
-]);
-
-function isTextual(mimeType: string): boolean {
-  const type = mimeType.toLowerCase().split(";")[0].trim();
-  return type.startsWith("text/") || TEXT_TYPES.has(type);
-}
 
 function cap(text: string): { text: string; truncated: boolean } {
   if (text.length <= MAX_EXTRACTED_CHARS) return { text, truncated: false };

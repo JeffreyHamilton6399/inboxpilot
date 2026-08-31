@@ -1,40 +1,24 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "framer-motion";
-import {
-  ArrowRight,
-  Inbox,
-  PenLine,
-  MessagesSquare,
-  CalendarClock,
-  ShieldCheck,
-  Check,
-  Sun,
-  Moon,
-  Zap,
-  Mail,
-} from "lucide-react";
+import { ArrowRight, Sun, Moon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Wordmark } from "./logo";
 import { Button } from "@/components/ui/button";
 import { CategoryBadge } from "./category-badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@/components/ui/card";
+import type { CategoryId } from "@/lib/types";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
-  if (!mounted) return <div className="h-9 w-9 rounded-md border border-border" />;
+  if (!mounted) return <div className="h-8 w-8" />;
   const isDark = theme === "dark";
   return (
     <Button
-      variant="outline"
+      variant="ghost"
       size="icon"
+      className="h-8 w-8"
       aria-label="Toggle theme"
       onClick={() => setTheme(isDark ? "light" : "dark")}
     >
@@ -43,107 +27,187 @@ function ThemeToggle() {
   );
 }
 
-const FEATURES = [
+/**
+ * The six things it does, as a ruled list rather than six cards each wearing
+ * an icon. An icon per feature is decoration standing where a distinction
+ * should be: none of these six are told apart by a picture, and the grid of
+ * them says less than the sentences do.
+ */
+const CAPABILITIES: { title: string; body: string }[] = [
   {
-    icon: Inbox,
     title: "Sorted on arrival",
-    desc: "Mail lands in one of eight categories — To Respond, Awaiting Reply, FYI, and the rest. Every call is visible and every call is yours to overrule.",
+    body: "Mail lands in one of eight categories — To Respond, Awaiting Reply, FYI, and the rest. Every call is visible, and every call is yours to overrule.",
   },
   {
-    icon: PenLine,
     title: "Drafts you approve",
-    desc: "Describe how you write once, and replies come back in that register. Send goes out in the right thread from your own account, and takes two presses — the second one names the recipient.",
+    body: "Describe how you write once and replies come back in that register. Sending goes out in the right thread from your own account, and takes two presses — the second one names the recipient.",
   },
   {
-    icon: MessagesSquare,
     title: "Questions about your mail",
-    desc: "Ask who is still waiting on you, or what a thread concluded. Answers are grounded in the messages actually in your inbox, and cite which ones.",
+    body: "Ask who is still waiting on you, or what a thread concluded. Answers are grounded in the messages actually in your inbox, and cite which ones.",
   },
   {
-    icon: CalendarClock,
+    title: "The keyboard, if you want it",
+    body: "j and k move, e archives, s stars, / searches. They stand down while you are typing, so a compose box never eats them.",
+  },
+  {
     title: "Meeting notes from a transcript",
-    desc: "Paste what was said and get the summary and the action items. Nothing joins your call, because nothing needs to.",
+    body: "Paste what was said and get the summary and the action items back. Nothing joins your call, because nothing needs to.",
   },
   {
-    icon: ShieldCheck,
-    title: "Your deployment",
-    desc: "Your Vercel account, your database, your Google OAuth client. Mail moves between Google and your own deployment and stops there.",
-  },
-  {
-    icon: Zap,
     title: "Whichever model you like",
-    desc: "Anything that speaks the OpenAI chat API — Groq, xAI, OpenAI, or a model on your own machine. One base URL, one key, swap freely.",
+    body: "Anything that speaks the OpenAI chat API — Groq, xAI, OpenAI, or a model running on your own machine. One base URL, one key, swap freely.",
   },
 ];
 
-function MockInbox() {
+const FACTS: { term: string; def: string }[] = [
+  { term: "Runs on", def: "Your Vercel account, your Postgres, your Google OAuth client" },
+  { term: "Reads", def: "Gmail, at the scopes you grant, revocable from Google at any time" },
+  { term: "Stores", def: "Your login, your tone profile, and the OAuth tokens. Not your mail" },
+  { term: "Sends to the model", def: "Only the message you are acting on, only when you act on it" },
+  { term: "Licence", def: "MIT" },
+];
+
+/** Sample rows. Recognisably mail, without pretending to be anyone's. */
+const SAMPLE: {
+  from: string;
+  subject: string;
+  preview: string;
+  category: CategoryId;
+  time: string;
+  unread?: boolean;
+}[] = [
+  {
+    from: "Sarah Chen",
+    subject: "Re: Q3 roadmap",
+    preview: "This looks right to me — one question about the second milestone.",
+    category: "to-respond",
+    time: "8m",
+    unread: true,
+  },
+  {
+    from: "David Park",
+    subject: "Following up on Thursday",
+    preview: "No rush. Keeping it near the top of your pile.",
+    category: "awaiting-reply",
+    time: "1h",
+  },
+  {
+    from: "Linear",
+    subject: "3 issues assigned to you",
+    preview: "ENG-441, ENG-448 and ENG-450 moved into your queue.",
+    category: "notification",
+    time: "2h",
+  },
+  {
+    from: "Maya Singh",
+    subject: "Re: debrief notes",
+    preview: "Added a comment under the third section about timing.",
+    category: "comment",
+    time: "3h",
+  },
+  {
+    from: "Ravi Menon",
+    subject: "Moved: design review",
+    preview: "Now Friday at 14:00, same room, same agenda.",
+    category: "meeting-update",
+    time: "5h",
+  },
+];
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+/**
+ * A still of the inbox. Built out of the same badges and type the real one
+ * uses, so it is a screenshot rather than an illustration of one.
+ */
+function InboxStill() {
   return (
-    <div className="relative">
-      <Card className="relative overflow-hidden shadow-lg border-border/60">
-        <CardHeader className="flex flex-row items-center gap-2 border-b bg-muted/40 py-3">
-          <div className="flex gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-muted-foreground/25" />
-            <span className="h-3 w-3 rounded-full bg-muted-foreground/25" />
-            <span className="h-3 w-3 rounded-full bg-muted-foreground/25" />
-          </div>
-          <div className="ml-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <Mail className="h-3.5 w-3.5" /> Inbox
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {[
-            { from: "Sarah Chen", subject: "Re: Q3 roadmap — looks great", cat: "to-respond" as const, time: "8m", unread: true, color: "bg-violet-500" },
-            { from: "Linear", subject: "3 issues assigned to you", cat: "notification" as const, time: "32m", unread: false, color: "bg-stone-500" },
-            { from: "David Park", subject: "Following up on our chat", cat: "awaiting-reply" as const, time: "1h", unread: false, color: "bg-rose-500" },
-            { from: "GitHub", subject: "PR #128 approved", cat: "notification" as const, time: "2h", unread: false, color: "bg-stone-500" },
-            { from: "Maya Singh", subject: "Re: debrief notes", cat: "comment" as const, time: "3h", unread: false, color: "bg-emerald-500" },
-          ].map((e, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, x: -8 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.1 + i * 0.08 }}
-              className="flex items-center gap-3 px-4 py-3 border-b last:border-0 hover:bg-muted/40 transition-colors"
-            >
-              <span className={`h-8 w-8 rounded-full ${e.color} shrink-0`} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className={`text-sm truncate ${e.unread ? "font-semibold" : "font-medium text-muted-foreground"}`}>
-                    {e.from}
-                  </span>
-                  {e.unread && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                  <CategoryBadge id={e.cat} showDot={false} />
-                </div>
-                <div className="text-xs text-muted-foreground truncate">{e.subject}</div>
+    <div className="overflow-hidden rounded-xl border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_-12px_rgba(0,0,0,0.12)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.6)]">
+      <div className="flex items-center gap-3 border-b bg-muted/40 px-4 py-2.5">
+        <span className="text-[13px] font-medium">Inbox</span>
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">38</span>
+        <div className="ml-auto flex gap-1.5">
+          <span className="rounded-full border px-2 py-0.5 text-[10.5px] text-muted-foreground">
+            To Respond 4
+          </span>
+          <span className="hidden rounded-full border px-2 py-0.5 text-[10.5px] text-muted-foreground sm:inline">
+            Marketing 12
+          </span>
+        </div>
+      </div>
+
+      <ul>
+        {SAMPLE.map((row) => (
+          <li
+            key={row.subject}
+            className="flex items-center gap-3 border-b px-4 py-3 last:border-0"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+              {initials(row.from)}
+            </span>
+            <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-4">
+              <div className="flex items-center gap-2 sm:w-40 sm:shrink-0">
+                <span
+                  className={
+                    row.unread
+                      ? "truncate text-[13px] font-semibold"
+                      : "truncate text-[13px] text-muted-foreground"
+                  }
+                >
+                  {row.from}
+                </span>
+                <CategoryBadge id={row.category} showDot={false} className="sm:hidden" />
               </div>
-              <span className="text-[11px] text-muted-foreground tabular-nums">{e.time}</span>
-            </motion.div>
-          ))}
-        </CardContent>
-      </Card>
+              <div className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+                <span className={row.unread ? "font-medium text-foreground" : "text-foreground"}>
+                  {row.subject}
+                </span>{" "}
+                — {row.preview}
+              </div>
+            </div>
+            <CategoryBadge
+              id={row.category}
+              showDot={false}
+              className="hidden shrink-0 sm:inline-flex"
+            />
+            <span className="w-6 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+              {row.time}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
 
 export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "signup") => void }) {
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      {/* Nav */}
-      <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
+    <div className="flex min-h-screen flex-col bg-background">
+      <header className="border-b">
+        <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-5 sm:px-8">
           <Wordmark />
-          <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="#features" className="hover:text-foreground transition-colors">What it does</a>
-            <a href="#how" className="hover:text-foreground transition-colors">How it runs</a>
-          </nav>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <a
+              href="https://github.com/JeffreyHamilton6399/inboxpilot"
+              target="_blank"
+              rel="noreferrer"
+              className="mr-2 hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
+            >
+              Source
+            </a>
             <ThemeToggle />
             <Button variant="ghost" size="sm" onClick={() => onGetStarted("login")}>
               Log in
             </Button>
             <Button size="sm" onClick={() => onGetStarted("signup")}>
-              Get started <ArrowRight className="h-4 w-4 ml-1.5" />
+              Get started
             </Button>
           </div>
         </div>
@@ -151,108 +215,153 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
 
       <main className="flex-1">
         {/* Hero */}
-        <section className="relative overflow-hidden">
-          <div className="absolute inset-0 grid-bg opacity-50" />
-          <div className="relative mx-auto max-w-6xl px-4 pt-16 pb-12 md:pt-24 md:pb-20 grid lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <motion.h1 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }} className="text-4xl md:text-6xl font-bold tracking-tight leading-[1.05]">
-                An assistant for the inbox you already have.
-              </motion.h1>
-              <motion.p initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.08 }} className="mt-5 text-lg text-muted-foreground max-w-xl">
-                InboxPilot connects to your Gmail, sorts what arrives, drafts replies
-                in the way you write, and answers questions about your mail. It runs on
-                your own deployment, against a model key you supply.
-              </motion.p>
-              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.16 }} className="mt-7 flex flex-col sm:flex-row gap-3">
-                <Button size="lg" onClick={() => onGetStarted("signup")} className="h-12 px-6 text-base">
-                  Get started <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-                <Button size="lg" variant="outline" className="h-12 px-6 text-base" onClick={() => onGetStarted("login")}>
-                  I have an account
-                </Button>
-              </motion.div>
-              <p className="mt-6 text-xs text-muted-foreground">
-                MIT licensed. Read the source, or run your own copy.
-              </p>
+        <section className="mx-auto max-w-4xl px-5 pt-14 pb-4 sm:px-8 md:pt-24">
+          <div className="animate-fade-in">
+            <p className="eyebrow">Self-hosted · MIT</p>
+            <h1 className="display measure-wide mt-5 text-[2.75rem] sm:text-6xl md:text-7xl">
+              An assistant for the inbox you <em>already</em> have.
+            </h1>
+            <p className="measure mt-6 text-[17px] leading-relaxed text-muted-foreground">
+              InboxPilot connects to your Gmail, sorts what arrives, drafts replies in the way you
+              write, and answers questions about your mail. It runs on your own deployment, against
+              a model key you supply.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button size="lg" className="h-11" onClick={() => onGetStarted("signup")}>
+                Get started
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button
+                size="lg"
+                variant="ghost"
+                className="h-11"
+                onClick={() => onGetStarted("login")}
+              >
+                I have an account
+              </Button>
             </div>
-            <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, delay: 0.15 }}>
-              <MockInbox />
-            </motion.div>
+          </div>
+
+          <div
+            className="animate-fade-in mt-14 md:mt-20"
+            style={{ animationDelay: "120ms" }}
+          >
+            <InboxStill />
           </div>
         </section>
 
         {/* What it does */}
-        <section id="features" className="mx-auto max-w-6xl px-4 py-16 md:py-24">
-          <div className="max-w-2xl mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-              What it does
-            </h2>
-            <p className="mt-4 text-muted-foreground">
-              Six things, each of which you can turn off or overrule.
-            </p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {FEATURES.map((f) => (
-              <motion.div key={f.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.35 }}>
-                <Card className="h-full border-border/60">
-                  <CardContent className="p-6">
-                    <f.icon className="h-5 w-5 text-muted-foreground mb-4" />
-                    <h3 className="font-semibold text-lg">{f.title}</h3>
-                    <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
+        <section className="mx-auto max-w-4xl px-5 pt-20 sm:px-8 md:pt-28">
+          <h2 className="display measure text-3xl sm:text-4xl">
+            Six things, each of which you can overrule.
+          </h2>
+
+          <dl className="mt-10 md:mt-14">
+            {CAPABILITIES.map((c, i) => (
+              <div
+                key={c.title}
+                className="rule-top flex flex-col gap-1.5 py-6 first:border-t-0 first:pt-0 md:flex-row md:gap-10 md:py-7"
+              >
+                <dt className="flex items-baseline gap-3 md:w-64 md:shrink-0">
+                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span className="text-[15px] font-semibold tracking-tight">{c.title}</span>
+                </dt>
+                <dd className="measure text-sm leading-relaxed text-muted-foreground md:pt-px">
+                  {c.body}
+                </dd>
+              </div>
             ))}
-          </div>
+          </dl>
         </section>
 
         {/* How it runs */}
-        <section id="how" className="bg-muted/30 border-y py-16 md:py-24">
-          <div className="mx-auto max-w-3xl px-4">
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-              How it runs
-            </h2>
-            <div className="mt-8 space-y-6 text-muted-foreground leading-relaxed">
+        <section className="mx-auto max-w-4xl px-5 pt-20 sm:px-8 md:pt-28">
+          <h2 className="display measure text-3xl sm:text-4xl">
+            Nobody operates this. <em>You</em> do.
+          </h2>
+
+          <div className="mt-10 grid gap-12 md:mt-14 md:grid-cols-[1fr_20rem] md:gap-16">
+            <div className="space-y-5 text-sm leading-relaxed text-muted-foreground">
               <p>
-                InboxPilot is not a service anyone operates. It is a Next.js app you
-                deploy to your own Vercel account, pointed at your own Postgres
-                database and your own Google OAuth client. There is no InboxPilot
+                InboxPilot is a Next.js app you deploy to your own Vercel account, pointed at your
+                own Postgres database and your own Google OAuth client. There is no InboxPilot
                 server between you and Google, because there is no InboxPilot server.
               </p>
               <p>
-                Gmail is read with the scopes you grant and nothing wider, and you can
-                revoke them from your Google account at any time. Message bodies are
-                fetched when you open a message rather than mirrored into the database.
+                Gmail is read with the scopes you grant and nothing wider, and you can revoke them
+                from your Google account at any time. Message bodies are fetched when you open a
+                message rather than mirrored into the database.
               </p>
               <p>
-                The model is whichever one you configure. Drafting a reply sends that
-                message to the endpoint you chose — so pick a provider you are willing
-                to show your mail to, or run a model locally and show it to no one.
+                The model is whichever one you configure. Drafting a reply sends that message to the
+                endpoint you chose — so pick a provider you are willing to show your mail to, or run
+                a model locally and show it to no one.
               </p>
             </div>
-            <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-              <span className="inline-flex items-center gap-2 text-muted-foreground">
-                <Check className="h-4 w-4 shrink-0" /> Nothing sends without your press
-              </span>
-              <span className="inline-flex items-center gap-2 text-muted-foreground">
-                <Check className="h-4 w-4 shrink-0" /> Revoke Gmail access from Google
-              </span>
-              <span className="inline-flex items-center gap-2 text-muted-foreground">
-                <Check className="h-4 w-4 shrink-0" /> MIT licensed, fork it
-              </span>
+
+            <dl className="self-start text-sm">
+              {FACTS.map((f) => (
+                <div key={f.term} className="rule-top py-3 first:border-t-0 first:pt-0">
+                  <dt className="eyebrow">{f.term}</dt>
+                  <dd className="mt-1.5 leading-relaxed">{f.def}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
+        {/* Close */}
+        <section className="mx-auto max-w-4xl px-5 pt-20 pb-24 sm:px-8 md:pt-28 md:pb-32">
+          <div className="rule-top pt-10 md:pt-14">
+            <h2 className="display measure text-3xl sm:text-4xl">
+              Read the source first, if you like.
+            </h2>
+            <p className="measure mt-4 text-sm leading-relaxed text-muted-foreground">
+              It is about four thousand lines and it does what this page says it does. Or make an
+              account and connect a mailbox — setup asks for three things and tells you which of
+              them your deployment is still missing.
+            </p>
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button size="lg" className="h-11" onClick={() => onGetStarted("signup")}>
+                Get started
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button size="lg" variant="outline" className="h-11" asChild>
+                <a
+                  href="https://github.com/JeffreyHamilton6399/inboxpilot"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Read the source
+                </a>
+              </Button>
             </div>
           </div>
         </section>
       </main>
 
-      <footer className="mt-auto border-t bg-background">
-        <div className="mx-auto max-w-6xl px-4 py-8 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2"><Wordmark /></div>
-          <p>MIT licensed</p>
-          <div className="flex items-center gap-4">
-            <a href="#features" className="hover:text-foreground transition-colors">What it does</a>
-            <a href="#how" className="hover:text-foreground transition-colors">How it runs</a>
-            <a href="https://github.com/JeffreyHamilton6399/inboxpilot" target="_blank" rel="noreferrer" className="hover:text-foreground transition-colors">Source</a>
+      <footer className="border-t">
+        <div className="mx-auto flex max-w-4xl flex-col gap-4 px-5 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8">
+          <Wordmark />
+          <div className="flex items-center gap-5">
+            <a
+              href="https://github.com/JeffreyHamilton6399/inboxpilot"
+              target="_blank"
+              rel="noreferrer"
+              className="transition-colors hover:text-foreground"
+            >
+              Source
+            </a>
+            <a
+              href="https://github.com/JeffreyHamilton6399/inboxpilot/blob/main/LICENSE"
+              target="_blank"
+              rel="noreferrer"
+              className="transition-colors hover:text-foreground"
+            >
+              MIT licence
+            </a>
           </div>
         </div>
       </footer>

@@ -20,11 +20,17 @@ import {
   Plug,
   MoreHorizontal,
   ArrowUpDown,
-  AlertCircle,
+  Archive,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@/lib/store";
-import { useEmails, fetchEmailDetail, useThread, InboxError } from "@/lib/use-emails";
+import {
+  useEmails,
+  fetchEmailDetail,
+  useThread,
+  useMessageActions,
+  InboxError,
+} from "@/lib/use-emails";
 import { AttachmentBar, PendingAttachments } from "@/components/inbox-pilot/attachments";
 import { splitQuotedReply, unwrap } from "@/lib/message-format";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/defaults";
@@ -49,6 +55,15 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useHotkeys } from "@/lib/use-hotkeys";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -87,66 +102,88 @@ function InboxProblemState({ problem }: { problem: InboxError }) {
   const gmailError = problem.problem === "gmail-error";
 
   return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-      <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
-        {gmailError ? (
-          <AlertCircle className="h-7 w-7 text-amber-500" />
-        ) : (
-          <Plug className="h-7 w-7 text-primary" />
-        )}
-      </div>
-
-      <h3 className="font-semibold text-lg">
-        {gmailError ? "Gmail refused the request" : reconnect ? "Reconnect your Gmail" : "Connect your Gmail"}
-      </h3>
-
-      <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+    <EmptyState
+      label={gmailError ? "Gmail said no" : "Not connected"}
+      title={
+        gmailError
+          ? "Gmail refused the request"
+          : reconnect
+            ? "Reconnect your Gmail"
+            : "Connect your Gmail"
+      }
+    >
+      <p>
         {gmailError
           ? "Your account is connected, but Google would not return your mail. The reason it gave is below — most often the Gmail API has not been enabled on the Google Cloud project this app uses."
           : reconnect
             ? "Your account is connected, but Google has stopped accepting the connection. This happens when access is revoked or the grant expires. Reconnecting takes a few seconds."
-            : "InboxPilot reads your real Gmail inbox so the AI can organize it, draft replies, and answer questions about your email. Nothing is sent without your say-so."}
+            : "InboxPilot reads your real Gmail inbox so it can sort it, draft replies, and answer questions about it. Nothing is sent without your say-so."}
       </p>
 
       {problem.detail && (
-        <p className="mt-3 max-w-md rounded-md bg-muted px-3 py-2 text-left text-[11px] font-mono text-muted-foreground break-words">
+        <p className="mt-3 border-l-2 border-border py-1 pl-3 font-mono text-[11px] leading-relaxed break-words">
           {problem.detail}
         </p>
       )}
 
       {!gmailError && (
-        <Button className="mt-5" onClick={connectGmail}>
-          <Plug className="h-4 w-4 mr-2" /> {reconnect ? "Reconnect Gmail" : "Connect Gmail"}
-        </Button>
+        <div className="mt-5">
+          <Button onClick={connectGmail}>
+            <Plug className="h-4 w-4" /> {reconnect ? "Reconnect Gmail" : "Connect Gmail"}
+          </Button>
+          <p className="mt-2.5 text-xs">
+            Google&apos;s own sign-in. Disconnect any time from Settings.
+          </p>
+        </div>
       )}
+    </EmptyState>
+  );
+}
 
-      <p className="text-[11px] text-muted-foreground mt-3 max-w-xs">
-        Uses the official Google sign-in. You can disconnect any time from
-        Settings.
-      </p>
+/**
+ * The house style for a screen with nothing on it: a mono label, a plain
+ * heading, and a paragraph inside a readable measure. No tinted icon tile —
+ * a large decorative glyph over three words of explanation is filler standing
+ * where the explanation should be.
+ */
+function EmptyState({
+  label,
+  title,
+  children,
+}: {
+  label: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="max-w-md">
+        <p className="eyebrow">{label}</p>
+        <h3 className="mt-3 text-[15px] font-semibold tracking-tight">{title}</h3>
+        <div className="mt-2 text-sm leading-relaxed text-muted-foreground">{children}</div>
+      </div>
     </div>
   );
 }
 
 function EmptyInboxState() {
   return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-      <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
-        <InboxIcon className="h-7 w-7 text-muted-foreground" />
-      </div>
-      <h3 className="font-semibold text-lg">Inbox zero</h3>
-      <p className="text-sm text-muted-foreground mt-1">
-        Your Gmail is connected but there&apos;s nothing new right now.
+    <EmptyState label="Nothing waiting" title="Inbox zero">
+      <p>
+        Gmail is connected and there is nothing new right now. Anything that arrives will be sorted
+        as it lands.
       </p>
-    </div>
+    </EmptyState>
   );
 }
 
 function LoadingState() {
   return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-      <Loader2 className="h-7 w-7 text-primary animate-spin mb-3" />
-      <p className="text-sm text-muted-foreground">Loading your inbox…</p>
+    <div className="flex h-full items-center justify-center p-8">
+      <span className="inline-flex items-center gap-2.5 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading your inbox…
+      </span>
     </div>
   );
 }
@@ -163,7 +200,7 @@ function CategoryFilter({
   return (
     // min-w-0 is what stops the scrolling row from pushing itself out under
     // the refresh button next to it, which clipped the last chip.
-    <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto scroll-thin pb-1">
+    <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto scroll-thin pb-1 [mask-image:linear-gradient(to_right,#000_calc(100%-1.5rem),transparent)]">
       {CATEGORIES.map((c) => (
         <FilterChip key={c.id} label={c.label} dot={c.dot} active={active === c.id} count={counts[c.id] ?? 0} onClick={() => onChange(c.id)} />
       ))}
@@ -198,6 +235,126 @@ function FilterChip({
       {label}
       <span className={cn("tabular-nums", active ? "text-primary-foreground/80" : "text-muted-foreground")}>{count}</span>
     </button>
+  );
+}
+
+/**
+ * Clears a whole category in one go — the thing the AI sorting is actually
+ * for. Gmail can archive in bulk too, but only after you have selected the
+ * messages yourself; here the category has already done that.
+ *
+ * Only offered with a filter applied. An "archive everything" button sitting
+ * over the unfiltered inbox is a mis-click with no undo.
+ */
+function ArchiveFiltered({
+  filter,
+  emails,
+  onDone,
+}: {
+  filter: CategoryId | "all";
+  emails: Email[];
+  onDone: () => void;
+}) {
+  const actions = useMessageActions();
+  const [confirming, setConfirming] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+
+  if (filter === "all" || emails.length === 0) return null;
+  const label = CATEGORY_MAP[filter].label;
+
+  const run = async () => {
+    setBusy(true);
+    const ids = emails.map((e) => e.id);
+    // The toast, and the undo with it, come from useMessageActions so that
+    // every route to archiving offers the same way back.
+    await actions.archive(ids);
+    setBusy(false);
+    setConfirming(false);
+    onDone();
+  };
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8 shrink-0"
+        onClick={() => setConfirming(true)}
+      >
+        <Archive className="h-3.5 w-3.5 mr-1.5" />
+        Archive {emails.length}
+      </Button>
+
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Archive {emails.length} {emails.length === 1 ? "message" : "messages"}?
+            </DialogTitle>
+            <DialogDescription>
+              Everything currently shown under {label} leaves the inbox. Nothing
+              is deleted — it stays in All Mail and in search, exactly as
+              archiving in Gmail works.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirming(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void run()} disabled={busy}>
+              {busy && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+              Archive {emails.length}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** Waits for typing to settle before letting a value through. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = React.useState(value);
+  React.useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
+
+const SHORTCUTS: { keys: string; does: string }[] = [
+  { keys: "j / k", does: "Next / previous message — it opens as you go" },
+  { keys: "u", does: "Back to the list" },
+  { keys: "e", does: "Archive, and move on" },
+  { keys: "s", does: "Star" },
+  { keys: "/", does: "Search" },
+  { keys: "Esc", does: "Leave the search box, or close the message" },
+  { keys: "?", does: "This list" },
+];
+
+function ShortcutHelp({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Keyboard shortcuts</DialogTitle>
+          <DialogDescription>
+            They do nothing while you are typing, so a compose box never eats
+            them.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          {SHORTCUTS.map((s) => (
+            <div key={s.keys} className="flex items-baseline gap-3 text-sm">
+              <kbd className="shrink-0 min-w-[4.5rem] rounded border bg-muted px-1.5 py-0.5 text-center font-mono text-xs">
+                {s.keys}
+              </kbd>
+              <span className="text-muted-foreground">{s.does}</span>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -243,6 +400,7 @@ function SortWithAI({ emails }: { emails: Email[] }) {
             emails: batch.map((e) => ({
               id: e.id,
               from: `${e.from.name} <${e.from.email}>`,
+              to: e.to,
               subject: e.subject,
               preview: e.preview,
             })),
@@ -333,6 +491,7 @@ function EmailRow({
 }) {
   return (
     <button
+      data-email-id={email.id}
       onClick={onClick}
       className={cn(
         "w-full text-left flex gap-3 px-3 py-3 border-b transition-colors",
@@ -366,6 +525,10 @@ function EmailRow({
 function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolean }) {
   // Files live only until the reply is sent; nothing is uploaded ahead of time.
   const [files, setFiles] = React.useState<File[]>([]);
+  // Same query key as the Conversation above, so this is the cache, not a
+  // second round trip. A reply written without the thread re-asks questions
+  // the thread already answered.
+  const { data: threadData } = useThread(email.threadId || email.id);
   const [dragging, setDragging] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
   const tone = useStore((s) => s.tone);
@@ -399,6 +562,13 @@ function ComposeArea({ email, bodyLoading }: { email: Email; bodyLoading: boolea
           email: { from: email.from.name, subject: email.subject, body: email.body, preview: email.preview },
           tone: tone as ToneProfile,
           draft: current || undefined,
+          thread: threadData?.messages?.map((m) => ({
+            from: m.from.name || m.from.email,
+            receivedAt: m.receivedAt,
+            body: m.body,
+            fromMe: m.fromMe,
+          })),
+          now: new Date().toISOString(),
         }),
       });
       if (res.status === 401) {
@@ -752,19 +922,22 @@ function Conversation({
 }
 
 function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) {
-  const markRead = useStore((s) => s.markRead);
-  const toggleRead = useStore((s) => s.toggleRead);
-  const toggleStar = useStore((s) => s.toggleStar);
   const setCategory = useStore((s) => s.setCategory);
+  const actions = useMessageActions();
   const { toast } = useToast();
   const [recategorizing, setRecategorizing] = React.useState(false);
   const [body, setBody] = React.useState(email.body);
   const [loadingBody, setLoadingBody] = React.useState(!email.body);
   const [attachments, setAttachments] = React.useState<Attachment[]>([]);
 
+  // Opening a message marks it read at Gmail too, the way every other client
+  // does — so it is not still bold on your phone.
+  const markRead = actions.read;
   React.useEffect(() => {
-    if (email.unread) markRead(email.id);
-  }, [email.id, email.unread, markRead]);
+    if (email.unread) void markRead(email.id, true);
+    // `markRead` is rebuilt each render; re-running on it would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email.id, email.unread]);
 
   React.useEffect(() => {
     let alive = true;
@@ -816,16 +989,35 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleStar(email.id, email.starred)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void actions.star(email.id, !email.starred)}>
                   <Star className={cn("h-4 w-4", email.starred && "fill-amber-400 text-amber-400")} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Star</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleRead(email.id, email.unread)}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void actions.read(email.id, email.unread)}>
             {email.unread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
           </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => {
+                    void actions.archive([email.id]);
+                    onClose();
+                  }}
+                  aria-label="Archive"
+                >
+                  <Archive className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Archive</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-8" disabled={recategorizing}>
@@ -890,7 +1082,20 @@ function EmailDetail({ email, onClose }: { email: Email; onClose: () => void }) 
 }
 
 export function InboxView() {
-  const { data: emails, isLoading, error, refetch, isFetching } = useEmails();
+  const [query, setQuery] = React.useState("");
+  // Gmail is asked once typing settles, not once per keystroke.
+  const search = useDebounced(query.trim(), 400);
+  const searching = search.length > 0;
+  const {
+    emails,
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useEmails(search);
   const drafts = useStore((s) => s.drafts);
   const categoryOverrides = useStore((s) => s.categoryOverrides);
   const readOverrides = useStore((s) => s.readOverrides);
@@ -898,20 +1103,24 @@ export function InboxView() {
   const selectedId = useStore((s) => s.selectedEmailId);
   const selectEmail = useStore((s) => s.selectEmail);
   const [filter, setFilter] = React.useState<CategoryId | "all">("all");
-  const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState<SortKey>("newest");
+
+  const archivedIds = useStore((s) => s.archivedIds);
 
   // Apply persisted overrides to the fetched emails.
   const merged = React.useMemo(() => {
     if (!emails) return [];
-    return emails.map((e) => ({
+    // Hidden from the inbox, but a search across all mail is entitled to find
+    // them — that is what archiving means.
+    const archived = new Set(searching ? [] : archivedIds);
+    return emails.filter((e) => !archived.has(e.id)).map((e) => ({
       ...e,
       category: categoryOverrides[e.id] ?? e.category,
       unread: readOverrides[e.id] !== undefined ? !readOverrides[e.id] : e.unread,
       starred: starredOverrides[e.id] ?? e.starred,
       draft: drafts[e.id] ?? e.draft,
     }));
-  }, [emails, categoryOverrides, readOverrides, starredOverrides, drafts]);
+  }, [emails, archivedIds, searching, categoryOverrides, readOverrides, starredOverrides, drafts]);
 
   const counts = React.useMemo(() => {
     const c: Record<string, number> = {};
@@ -920,7 +1129,10 @@ export function InboxView() {
   }, [merged]);
 
   const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
+    // Only while the inbox is what is loaded. Once Gmail has run the search,
+    // re-filtering here would throw away its matches: it searches full message
+    // bodies, and the list only carries subject, sender and snippet.
+    const q = searching ? "" : query.trim().toLowerCase();
     const list = merged.filter((e) => {
       if (filter !== "all" && e.category !== filter) return false;
       if (!q) return true;
@@ -949,16 +1161,74 @@ export function InboxView() {
       default:
         return [...list].sort(byDate);
     }
-  }, [merged, filter, query, sort]);
+  }, [merged, filter, query, searching, sort]);
 
   const selected = merged.find((e) => e.id === selectedId) ?? null;
 
+  const actions = useMessageActions();
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const [showShortcuts, setShowShortcuts] = React.useState(false);
+
+  /** Steps the selection through the list as it is currently shown. */
+  const step = React.useCallback(
+    (delta: number) => {
+      if (filtered.length === 0) return;
+      const at = filtered.findIndex((e) => e.id === selectedId);
+      const next =
+        at === -1
+          ? delta > 0
+            ? 0
+            : filtered.length - 1
+          : Math.min(filtered.length - 1, Math.max(0, at + delta));
+      selectEmail(filtered[next].id);
+    },
+    [filtered, selectedId, selectEmail]
+  );
+
+  useHotkeys({
+    j: () => step(1),
+    k: () => step(-1),
+    u: () => selectEmail(null),
+    "/": () => searchRef.current?.focus(),
+    "?": () => setShowShortcuts(true),
+    s: () => {
+      if (selected) void actions.star(selected.id, !selected.starred);
+    },
+    e: () => {
+      if (!selected) return;
+      // Land on the next message rather than nothing, the way Gmail does —
+      // archiving a run of mail should not need a click between each one.
+      const at = filtered.findIndex((x) => x.id === selected.id);
+      const after = filtered[at + 1] ?? filtered[at - 1] ?? null;
+      void actions.archive([selected.id]);
+      selectEmail(after ? after.id : null);
+    },
+    Escape: () => {
+      if (document.activeElement === searchRef.current) {
+        setQuery("");
+        searchRef.current?.blur();
+        return;
+      }
+      selectEmail(null);
+    },
+  });
+
+  // Keep the keyboard selection on screen. `nearest` means clicking a row that
+  // is already visible does not jerk the list around.
+  React.useEffect(() => {
+    if (!selectedId) return;
+    document
+      .querySelector(`[data-email-id="${CSS.escape(selectedId)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
+
   const gmailConnected = !isLoading && !error && emails !== undefined;
-  const inboxEmpty = gmailConnected && merged.length === 0;
+  const inboxEmpty = gmailConnected && !searching && merged.length === 0;
   const problem = error instanceof InboxError ? error : null;
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
+      <ShortcutHelp open={showShortcuts} onOpenChange={setShowShortcuts} />
       <div className={cn("w-full md:w-[380px] shrink-0 border-r flex flex-col min-h-0", selected && "hidden md:flex")}>
         <div className="p-3 space-y-2 border-b shrink-0">
           {/* Refresh sits with the search box, not beside the filters: the
@@ -967,12 +1237,43 @@ export function InboxView() {
           <div className="flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search inbox…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8 h-9" disabled={!gmailConnected} />
+              <Input
+                ref={searchRef}
+                placeholder="Search all mail — from:, has:attachment…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className={cn("pl-8 h-9", query && "pr-8")}
+                disabled={!gmailConnected}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
             <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh">
               <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
             </Button>
           </div>
+          {searching && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {isFetching ? (
+                <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+              ) : (
+                <Search className="h-3 w-3 shrink-0" />
+              )}
+              <span className="truncate">
+                {isFetching
+                  ? "Searching all mail…"
+                  : `${merged.length} in all mail — not just the inbox`}
+              </span>
+            </div>
+          )}
           <CategoryFilter active={filter} counts={counts} onChange={setFilter} />
 
           <div className="flex items-center gap-1">
@@ -986,24 +1287,60 @@ export function InboxView() {
               onClick={() => { setFilter("all"); setQuery(""); }}
             >
               <InboxIcon className="h-3.5 w-3.5 mr-1.5" />
-              See all
+              {searching ? "Back to inbox" : "See all"}
               <span className="ml-1.5 tabular-nums text-muted-foreground">{merged.length}</span>
             </Button>
             <SortMenu sort={sort} onChange={setSort} />
+            {!searching && (
+              <ArchiveFiltered filter={filter} emails={filtered} onDone={() => setFilter("all")} />
+            )}
             <div className="ml-auto">
               <SortWithAI emails={merged} />
             </div>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto scroll-thin min-h-0">
-          {filtered.length === 0 ? (
+          {filtered.length === 0 && (
             <div className="p-8 text-center text-sm text-muted-foreground">
-              {inboxEmpty ? "No emails yet." : "No emails match."}
+              {searching
+                ? `Nothing in all mail matches “${search}”.`
+                : inboxEmpty
+                  ? "No emails yet."
+                  : "No emails match."}
+              {hasNextPage && !searching && (
+                <span className="block mt-1 text-xs">
+                  Only the first {merged.length} are loaded.
+                </span>
+              )}
             </div>
-          ) : (
-            filtered.map((e) => (
-              <EmailRow key={e.id} email={e} active={selected?.id === e.id} hasDraft={Boolean(drafts[e.id])} onClick={() => selectEmail(e.id)} />
-            ))
+          )}
+
+          {filtered.map((e) => (
+            <EmailRow key={e.id} email={e} active={selected?.id === e.id} hasDraft={Boolean(drafts[e.id])} onClick={() => selectEmail(e.id)} />
+          ))}
+
+          {/* Outside the empty branch on purpose: a category filter can match
+              nothing on the first page while later pages are full of it, and
+              hiding the way forward there is a dead end. */}
+          {hasNextPage && (
+            <div className="p-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => void fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Loading…
+                  </>
+                ) : (
+                  "Load more"
+                )}
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -1018,15 +1355,26 @@ export function InboxView() {
         ) : selected ? (
           <EmailDetail email={selected} onClose={() => selectEmail(null)} />
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8">
-            <div className="h-14 w-14 rounded-2xl bg-primary flex items-center justify-center mb-4">
-              <Mail className="h-7 w-7 text-primary-foreground" />
-            </div>
-            <h3 className="font-semibold text-lg">Select an email</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-              Pick a message to read it, see how the AI categorizes it, and generate a tone-matched reply.
+          <EmptyState label="Nothing open" title="Pick a message">
+            <p>
+              Opening one shows the thread, why it was sorted where it was, and a draft reply if
+              you ask for one.
             </p>
-          </div>
+            <p className="mt-3">
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[11px]">j</kbd>{" "}
+              and{" "}
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[11px]">k</kbd>{" "}
+              move through the list without the mouse.{" "}
+              <button
+                type="button"
+                onClick={() => setShowShortcuts(true)}
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                The rest
+              </button>
+              .
+            </p>
+          </EmptyState>
         )}
       </div>
     </div>

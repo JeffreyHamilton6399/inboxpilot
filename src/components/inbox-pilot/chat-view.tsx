@@ -1,21 +1,24 @@
 "use client";
 
 import * as React from "react";
-import {
-  Send,
-  Trash2,
-  Loader2,
-  Bot,
-  User as UserIcon,
-} from "lucide-react";
+import { Send, Trash2, Loader2, ArrowUpRight } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useEmails } from "@/lib/use-emails";
-import { SUGGESTED_CHAT_PROMPTS, CATEGORY_MAP } from "@/lib/defaults";
+import { SUGGESTED_CHAT_PROMPTS } from "@/lib/defaults";
+import { buildInboxContext } from "@/lib/inbox-context";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import ReactMarkdown from "react-markdown";
+
+/**
+ * The markdown an answer is allowed to be, kept legible at 14px. Written as
+ * element selectors rather than `prose` classes because the typography plugin
+ * is not installed here — those classes were doing nothing at all.
+ */
+const PROSE =
+  "[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5 [&_pre]:my-2 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-foreground [&_strong]:font-semibold [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_a]:text-primary [&_a]:underline";
 
 export function ChatView() {
   const chat = useStore((s) => s.chat);
@@ -24,7 +27,7 @@ export function ChatView() {
   const clearChat = useStore((s) => s.clearChat);
   const chatBusy = useStore((s) => s.chatBusy);
   const setChatBusy = useStore((s) => s.setChatBusy);
-  const { data: emails } = useEmails();
+  const { emails } = useEmails();
   const { toast } = useToast();
 
   const [input, setInput] = React.useState("");
@@ -36,13 +39,25 @@ export function ChatView() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat]);
 
+  const grounded = Boolean(emails && emails.length > 0);
+
   const send = async (text: string) => {
     const content = text.trim();
     if (!content || chatBusy) return;
 
-    const userMsg = { id: crypto.randomUUID(), role: "user" as const, content, at: new Date().toISOString() };
+    const userMsg = {
+      id: crypto.randomUUID(),
+      role: "user" as const,
+      content,
+      at: new Date().toISOString(),
+    };
     const aiId = crypto.randomUUID();
-    const aiMsg = { id: aiId, role: "assistant" as const, content: "", at: new Date().toISOString() };
+    const aiMsg = {
+      id: aiId,
+      role: "assistant" as const,
+      content: "",
+      at: new Date().toISOString(),
+    };
     addChat(userMsg);
     addChat(aiMsg);
     setChatBusy(true);
@@ -53,21 +68,23 @@ export function ChatView() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Build context from the real inbox (if connected).
-    let context = "";
-    if (emails && emails.length > 0) {
-      const ranked = [...emails].sort((a, b) => {
-        const score = (e: (typeof emails)[number]) => (e.category === "to-respond" ? 4 : 0) + (e.unread ? 2 : 0) + (e.starred ? 1 : 0);
-        return score(b) - score(a);
-      });
-      context = ranked.slice(0, 12).map((e) => `• from ${e.from.name} <${e.from.email}> | category: ${CATEGORY_MAP[e.category].label} | subject: ${e.subject} | preview: ${e.preview}`).join("\n");
-    }
+    // Everything loaded, newest first, with the arrival times and read state
+    // that questions about waiting and recency actually turn on. Ranking the
+    // top twelve by a local heuristic threw away exactly the messages that
+    // "what has been sitting here longest" needed, and carried no dates at all.
+    const context = emails ? buildInboxContext(emails, { now: new Date() }) : "";
 
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: history, context: context || undefined }),
+        body: JSON.stringify({
+          messages: history,
+          context: context || undefined,
+          // The reader's clock, not the server's: "today" is a question about
+          // where they are sitting.
+          now: new Date().toISOString(),
+        }),
         signal: controller.signal,
       });
       if (res.status === 401) {
@@ -85,9 +102,6 @@ export function ChatView() {
         const chunk = decoder.decode(value, { stream: true });
         if (chunk) appendChat(aiId, chunk);
       }
-      if (!emails || emails.length === 0) {
-        appendChat(aiId, "\n\n_(Connect your Gmail in the Inbox tab for inbox-aware answers.)_");
-      }
     } catch (e) {
       if ((e as Error).name === "AbortError") {
         appendChat(aiId, "\n\n[stopped]");
@@ -104,86 +118,120 @@ export function ChatView() {
   const stop = () => abortRef.current?.abort();
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 border-b shrink-0">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          {emails && emails.length > 0
-            ? "Answers are drawn from the mail in your inbox"
-            : "Connect Gmail and answers will cite your own mail"}
-        </div>
-        {chat.length > 0 && (
-          <Button variant="ghost" size="sm" className="h-8 text-muted-foreground" onClick={clearChat} disabled={chatBusy}>
-            <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Clear
-          </Button>
-        )}
-      </div>
-
-      <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin min-h-0">
-        <div className="mx-auto max-w-3xl px-4 py-6 space-y-4">
-          {chat.length === 0 ? (
-            <div className="text-center py-10">
-              <div className="h-14 w-14 rounded-2xl bg-primary mx-auto flex items-center justify-center mb-4">
-                <Bot className="h-7 w-7 text-primary-foreground" />
-              </div>
-              <h3 className="font-semibold text-lg">Chat with your inbox</h3>
-              <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-                Ask about who you need to reply to, summarize a thread, or draft a follow-up.
-                {(!emails || emails.length === 0) && " Connect Gmail first for inbox-aware answers."}
-              </p>
-              <div className="mt-6 grid sm:grid-cols-2 gap-2 max-w-xl mx-auto">
-                {SUGGESTED_CHAT_PROMPTS.map((p) => (
-                  <button key={p} onClick={() => send(p)} className="text-left text-sm rounded-lg border bg-card px-3 py-2.5 hover:border-primary/40 hover:bg-muted/40 transition-colors">
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            chat.map((m) => (
-              <div key={m.id} className={cn("flex gap-3 animate-fade-in", m.role === "user" && "flex-row-reverse")}>
-                <span className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-primary-foreground", m.role === "user" ? "bg-muted-foreground" : "bg-primary")}>
-                  {m.role === "user" ? <UserIcon className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-                </span>
-                <div className={cn("rounded-2xl px-4 py-2.5 text-sm max-w-[80%] leading-relaxed", m.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap" : "bg-muted rounded-tl-sm")}>
-                  {m.content ? (
-                    m.role === "assistant" ? (
-                      <div className="prose prose-sm dark:prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_pre]:my-2 [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_code]:bg-muted-foreground/10 [&_code]:text-foreground [&_strong]:font-semibold [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_a]:text-primary [&_a]:underline">
-                        <ReactMarkdown>{m.content}</ReactMarkdown>
-                      </div>
-                    ) : (
-                      m.content
-                    )
-                  ) : (
-                    <span className="inline-flex gap-1 items-center text-muted-foreground">
-                      <Loader2 className="h-3 w-3 animate-spin" /> thinking…
-                    </span>
-                  )}
-                  {chatBusy && m.role === "assistant" && m.id === chat[chat.length - 1].id && m.content && <span className="typing-cursor" />}
-                </div>
-              </div>
-            ))
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="shrink-0 border-b py-2.5">
+        <div className="mx-auto flex h-7 max-w-2xl items-center justify-between px-5 sm:px-6">
+          <p className="eyebrow">
+            {grounded ? "Grounded in your inbox" : "No mail loaded"}
+          </p>
+          {chat.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-muted-foreground"
+              onClick={clearChat}
+              disabled={chatBusy}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Clear
+            </Button>
           )}
         </div>
       </div>
 
-      <div className="border-t bg-background p-3 shrink-0">
-        <div className="mx-auto max-w-3xl flex items-end gap-2">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scroll-thin">
+        <div className="mx-auto max-w-2xl px-5 py-8 sm:px-6">
+          {chat.length === 0 ? (
+            <div>
+              <h2 className="display text-3xl sm:text-4xl">Ask about your mail.</h2>
+              <p className="measure mt-3 text-sm leading-relaxed text-muted-foreground">
+                Answers are drawn from the messages actually in your inbox, and name which ones.
+                {!grounded && " Connect Gmail first, or these will be guesses."}
+              </p>
+
+              <ul className="mt-8">
+                {SUGGESTED_CHAT_PROMPTS.map((p) => (
+                  <li key={p} className="rule-top first:border-t-0">
+                    <button
+                      onClick={() => send(p)}
+                      className="group flex w-full items-center gap-3 py-3 text-left text-sm transition-colors hover:text-primary"
+                    >
+                      <span className="flex-1">{p}</span>
+                      <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            /* No robot avatar beside every line. The question is short and
+               belongs to you, so it sits right and tinted; the answer is long
+               and belongs to the page, so it is set as prose across it. */
+            <div className="space-y-6">
+              {chat.map((m, i) =>
+                m.role === "user" ? (
+                  <div key={m.id} className="flex justify-end">
+                    <p className="max-w-[85%] rounded-xl rounded-br-sm bg-secondary px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap">
+                      {m.content}
+                    </p>
+                  </div>
+                ) : (
+                  <div key={m.id} className="animate-fade-in-fast">
+                    <p className="eyebrow">InboxPilot</p>
+                    <div className="mt-2.5 text-sm leading-relaxed">
+                      {m.content ? (
+                        <div className={PROSE}>
+                          <ReactMarkdown>{m.content}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-2 text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> thinking…
+                        </span>
+                      )}
+                      {chatBusy && i === chat.length - 1 && m.content && (
+                        <span className="typing-cursor" />
+                      )}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t bg-background py-3">
+        <div className="mx-auto flex max-w-2xl items-end gap-2 px-5 sm:px-6">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-            placeholder="Ask about your inbox…  (Enter to send, Shift+Enter for newline)"
-            className="min-h-[44px] max-h-40 resize-none"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send(input);
+              }
+            }}
+            placeholder="Ask about your inbox…"
+            className={cn("max-h-40 min-h-[42px] resize-none")}
             rows={1}
           />
           {chatBusy ? (
-            <Button variant="outline" onClick={stop} className="h-11">Stop</Button>
+            <Button variant="outline" onClick={stop} className="h-[42px]">
+              Stop
+            </Button>
           ) : (
-            <Button className="h-11 px-4" onClick={() => send(input)} disabled={!input.trim()}>
+            <Button
+              className="h-[42px] px-4"
+              onClick={() => send(input)}
+              disabled={!input.trim()}
+              aria-label="Send"
+            >
               <Send className="h-4 w-4" />
             </Button>
           )}
         </div>
+        <p className="mx-auto mt-2 max-w-2xl px-5 text-[11px] text-muted-foreground sm:px-6">
+          Enter sends · Shift+Enter for a new line
+        </p>
       </div>
     </div>
   );

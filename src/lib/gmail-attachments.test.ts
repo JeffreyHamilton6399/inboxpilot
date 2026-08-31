@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractAttachments } from "./gmail";
+import { extractAttachments, findAttachment } from "./gmail";
 
 /** Shapes a Gmail part the way the API actually returns one. */
 const filePart = (
@@ -131,5 +131,60 @@ describe("extractAttachments", () => {
     });
 
     expect(found.map((a) => a.id)).toEqual(["ATT-6", "ATT-7", "ATT-8"]);
+  });
+});
+
+describe("part paths", () => {
+  it("numbers the parts by their position in the tree", () => {
+    const found = extractAttachments({
+      mimeType: "multipart/mixed",
+      parts: [
+        { mimeType: "text/plain", body: { data: "aGk=" } },
+        filePart("a.pdf", "application/pdf", "ATT-A"),
+        {
+          mimeType: "multipart/related",
+          parts: [filePart("b.pdf", "application/pdf", "ATT-B")],
+        },
+      ],
+    });
+
+    expect(found.map((a) => [a.filename, a.partId])).toEqual([
+      ["a.pdf", "1"],
+      ["b.pdf", "2.0"],
+    ]);
+  });
+
+  it("gives a single-part message a path anyway", () => {
+    const found = extractAttachments(filePart("only.pdf", "application/pdf", "ATT-1"));
+    expect(found[0].partId).toBe("0");
+  });
+});
+
+describe("findAttachment", () => {
+  const list = extractAttachments({
+    mimeType: "multipart/mixed",
+    parts: [
+      { mimeType: "text/plain", body: { data: "aGk=" } },
+      filePart("invoice.pdf", "application/pdf", "ATT-NOW"),
+    ],
+  });
+
+  it("finds a part by its path", () => {
+    expect(findAttachment(list, "1")?.filename).toBe("invoice.pdf");
+  });
+
+  it("still finds a part by a current attachment id", () => {
+    expect(findAttachment(list, "ATT-NOW")?.filename).toBe("invoice.pdf");
+  });
+
+  it("finds the file even when the attachment id has since changed", () => {
+    // The bug this exists for: the page was holding ATT-BEFORE, Gmail now
+    // calls the same part ATT-NOW, and the file reported itself missing.
+    expect(findAttachment(list, "ATT-BEFORE")).toBeUndefined();
+    expect(findAttachment(list, "1")?.id).toBe("ATT-NOW");
+  });
+
+  it("returns nothing for a path that is not there", () => {
+    expect(findAttachment(list, "7")).toBeUndefined();
   });
 });

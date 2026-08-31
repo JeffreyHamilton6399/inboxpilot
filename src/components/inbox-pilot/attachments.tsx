@@ -1,10 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { Download, FileText, ImageIcon, File, X, Loader2, Sparkles } from "lucide-react";
+import {
+  Download,
+  FileText,
+  ImageIcon,
+  File,
+  X,
+  Loader2,
+  Sparkles,
+  AlertTriangle,
+  RefreshCw,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { canExtractText } from "@/lib/readable-types";
 import type { Attachment } from "@/lib/types";
 
 /** Bytes as something a person reads, e.g. `1.4 MB`. */
@@ -32,9 +44,59 @@ export function attachmentKind(mimeType: string): Kind {
   return "other";
 }
 
-function attachmentUrl(messageId: string, attachmentId: string, download = false): string {
-  const base = `/api/gmail/message/${encodeURIComponent(messageId)}/attachment/${encodeURIComponent(attachmentId)}`;
+/**
+ * Keyed on the part path rather than Gmail's attachmentId: the id is opaque,
+ * enormous, and not guaranteed to still be the one Gmail answers to by the
+ * time someone clicks. The path is short and cannot change.
+ */
+function attachmentUrl(messageId: string, partId: string, download = false): string {
+  const base = `/api/gmail/message/${encodeURIComponent(messageId)}/attachment/${encodeURIComponent(partId)}`;
   return download ? `${base}?download=1` : base;
+}
+
+/**
+ * Saves an attachment, having first checked that it is the attachment.
+ *
+ * A plain `<a href={route} download>` hands the browser whatever comes back
+ * and lets it name the result after the file — so a route that answered with
+ * `{"error":…}` wrote a 41-byte JSON document to disk called `invoice.pdf`,
+ * silently, and the corruption only turned up when someone tried to open it.
+ * Checking the response first costs a buffer the server had already taken:
+ * Gmail returns attachments as base64 inside JSON, so the whole file is
+ * materialised server-side regardless and this download never streamed.
+ */
+function useAttachmentDownload(url: string, filename: string) {
+  const { toast } = useToast();
+  const [saving, setSaving] = React.useState(false);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(await readErrorMessage(res));
+
+      const href = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Firefox needs the URL to outlive the click for the save to complete.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
+    } catch (err) {
+      toast({
+        title: `Couldn't download ${filename}`,
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return { save, saving };
 }
 
 const ICONS: Record<Kind, React.ComponentType<{ className?: string }>> = {
@@ -69,7 +131,7 @@ export function AttachmentBar({
   React.useEffect(() => setOpenId(null), [messageId]);
 
   if (attachments.length === 0) return null;
-  const open = attachments.find((a) => a.id === openId) ?? null;
+  const open = attachments.find((a) => a.partId === openId) ?? null;
 
   return (
     <div className="mt-5 pt-4 border-t">
@@ -81,10 +143,10 @@ export function AttachmentBar({
         {attachments.map((attachment) => {
           const kind = attachmentKind(attachment.mimeType);
           const Icon = ICONS[kind];
-          const active = attachment.id === openId;
+          const active = attachment.partId === openId;
           return (
             <div
-              key={attachment.id}
+              key={attachment.partId}
               className={cn(
                 "flex items-stretch rounded-lg border overflow-hidden bg-card transition-colors",
                 active ? "border-primary" : "hover:border-primary/60"
@@ -92,7 +154,7 @@ export function AttachmentBar({
             >
               <button
                 type="button"
-                onClick={() => setOpenId(active ? null : attachment.id)}
+                onClick={() => setOpenId(active ? null : attachment.partId)}
                 className="flex items-center gap-2.5 px-3 py-2 max-w-[280px] text-left"
                 title={`Preview ${attachment.filename}`}
               >
@@ -104,15 +166,7 @@ export function AttachmentBar({
                   </span>
                 </span>
               </button>
-              <a
-                href={attachmentUrl(messageId, attachment.id, true)}
-                download={attachment.filename}
-                className="flex items-center px-2.5 border-l text-muted-foreground hover:text-primary hover:bg-accent"
-                title={`Download ${attachment.filename}`}
-                aria-label={`Download ${attachment.filename}`}
-              >
-                <Download className="h-3.5 w-3.5" />
-              </a>
+              <ChipDownload messageId={messageId} attachment={attachment} />
             </div>
           );
         })}
@@ -129,6 +183,37 @@ export function AttachmentBar({
   );
 }
 
+/** The save icon on a chip. */
+function ChipDownload({
+  messageId,
+  attachment,
+}: {
+  messageId: string;
+  attachment: Attachment;
+}) {
+  const { save, saving } = useAttachmentDownload(
+    attachmentUrl(messageId, attachment.partId, true),
+    attachment.filename
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={save}
+      disabled={saving}
+      className="flex items-center px-2.5 border-l text-muted-foreground hover:text-primary hover:bg-accent disabled:opacity-50"
+      title={`Download ${attachment.filename}`}
+      aria-label={`Download ${attachment.filename}`}
+    >
+      {saving ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Download className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
+
 function AttachmentPreview({
   messageId,
   attachment,
@@ -139,7 +224,11 @@ function AttachmentPreview({
   onClose: () => void;
 }) {
   const kind = attachmentKind(attachment.mimeType);
-  const url = attachmentUrl(messageId, attachment.id);
+  const url = attachmentUrl(messageId, attachment.partId);
+  const download = useAttachmentDownload(
+    attachmentUrl(messageId, attachment.partId, true),
+    attachment.filename
+  );
 
   return (
     <div className="mt-3 rounded-lg border overflow-hidden bg-card">
@@ -149,10 +238,15 @@ function AttachmentPreview({
           {attachment.mimeType} · {formatBytes(attachment.size)}
         </span>
         <div className="ml-auto flex items-center gap-1">
-          <Button asChild variant="outline" size="sm" className="h-7">
-            <a href={attachmentUrl(messageId, attachment.id, true)} download={attachment.filename}>
-              Download
-            </a>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7"
+            onClick={download.save}
+            disabled={download.saving}
+          >
+            {download.saving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+            Download
           </Button>
           <Button
             variant="ghost"
@@ -166,24 +260,14 @@ function AttachmentPreview({
         </div>
       </div>
 
-      <AskAboutFile messageId={messageId} attachment={attachment} />
-
-      {kind === "pdf" && (
-        // The browser's own PDF viewer — paging, zoom and print for free.
-        <iframe src={url} title={attachment.filename} className="w-full h-[600px] border-0" />
+      {/* Offered only where an answer is possible. The model reads text, so
+          on a zip or an image the box could do nothing but apologise. */}
+      {canExtractText(attachment.mimeType) && (
+        <AskAboutFile messageId={messageId} attachment={attachment} />
       )}
 
-      {kind === "image" && (
-        <div className="p-4 text-center bg-muted/20">
-          {/* Not next/image: the bytes come from an API route, and the
-              dimensions are unknown until the response arrives. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt={attachment.filename}
-            className="max-w-full max-h-[600px] inline-block rounded"
-          />
-        </div>
+      {(kind === "pdf" || kind === "image") && (
+        <BytesPreview kind={kind} filename={attachment.filename} url={url} />
       )}
 
       {kind === "text" && <TextPreview url={url} />}
@@ -198,10 +282,131 @@ function AttachmentPreview({
   );
 }
 
+/** The route's own words about a failure, rather than a bare status code. */
+async function readErrorMessage(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  return body?.error ?? `The server returned ${res.status}.`;
+}
+
+function PreviewSpinner() {
+  return (
+    <div className="py-16 flex items-center justify-center text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" />
+    </div>
+  );
+}
+
+/**
+ * A preview that could not be shown, said in words.
+ *
+ * Retry rather than Download, because the failures worth offering an action
+ * for — a session that lapsed while the message sat open, a stumble from
+ * Gmail — are the ones that come good on a second ask. Downloading goes
+ * through the same route and would fail the same way.
+ */
+function PreviewProblem({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="py-12 px-5 flex flex-col items-center gap-3 text-center">
+      <AlertTriangle className="h-5 w-5 text-amber-500" />
+      <div>
+        <p className="text-sm">{message}</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          The file itself is untouched — this is only the preview.
+        </p>
+      </div>
+      <Button variant="outline" size="sm" className="h-7" onClick={onRetry}>
+        <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+        Try again
+      </Button>
+    </div>
+  );
+}
+
+type BlobState =
+  | { status: "loading" }
+  | { status: "ready"; href: string }
+  | { status: "error"; message: string };
+
+/**
+ * Fetches the bytes, then hands back a blob URL for them.
+ *
+ * Pointing an <iframe> or <img> straight at the route renders whatever the
+ * route returned — which is how a failed lookup used to reach people: a raw
+ * `{"error":…}` sitting in the middle of the page where the document should
+ * be. Fetching first means a failure can be recognised as one.
+ */
+function useAttachmentBlob(url: string): { state: BlobState; reload: () => void } {
+  const [attempt, setAttempt] = React.useState(0);
+  const [state, setState] = React.useState<BlobState>({ status: "loading" });
+
+  React.useEffect(() => {
+    let alive = true;
+    let objectUrl: string | null = null;
+    setState({ status: "loading" });
+
+    fetch(url)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await readErrorMessage(res));
+        return res.blob();
+      })
+      .then((blob) => {
+        if (!alive) return;
+        objectUrl = URL.createObjectURL(blob);
+        setState({ status: "ready", href: objectUrl });
+      })
+      .catch((err: Error) => {
+        if (alive) setState({ status: "error", message: err.message });
+      });
+
+    return () => {
+      alive = false;
+      // A blob URL pins the bytes in memory until it is given up explicitly.
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url, attempt]);
+
+  return { state, reload: () => setAttempt((n) => n + 1) };
+}
+
+/** A PDF or an image, once its bytes are in hand. */
+function BytesPreview({
+  kind,
+  filename,
+  url,
+}: {
+  kind: "pdf" | "image";
+  filename: string;
+  url: string;
+}) {
+  const { state, reload } = useAttachmentBlob(url);
+
+  if (state.status === "loading") return <PreviewSpinner />;
+  if (state.status === "error") {
+    return <PreviewProblem message={state.message} onRetry={reload} />;
+  }
+
+  if (kind === "pdf") {
+    // The browser's own PDF viewer — paging, zoom and print for free.
+    return <iframe src={state.href} title={filename} className="w-full h-[600px] border-0" />;
+  }
+  return (
+    <div className="p-4 text-center bg-muted/20">
+      {/* Not next/image: the source is a blob URL of unknown dimensions. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={state.href}
+        alt={filename}
+        className="max-w-full max-h-[600px] inline-block rounded"
+      />
+    </div>
+  );
+}
+
 /** Anything longer is truncated rather than dropped into the DOM whole. */
 const MAX_PREVIEW_CHARS = 200_000;
 
 function TextPreview({ url }: { url: string }) {
+  const [attempt, setAttempt] = React.useState(0);
   const [text, setText] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -210,8 +415,8 @@ function TextPreview({ url }: { url: string }) {
     setText(null);
     setError(null);
     fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await readErrorMessage(res));
         return res.text();
       })
       .then((body) => {
@@ -228,17 +433,13 @@ function TextPreview({ url }: { url: string }) {
     return () => {
       alive = false;
     };
-  }, [url]);
+  }, [url, attempt]);
 
   if (error) {
-    return <div className="py-10 text-center text-sm text-muted-foreground">{error}</div>;
+    return <PreviewProblem message={error} onRetry={() => setAttempt((n) => n + 1)} />;
   }
   if (text === null) {
-    return (
-      <div className="py-10 flex items-center justify-center text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-      </div>
-    );
+    return <PreviewSpinner />;
   }
   return (
     <pre className="p-4 max-h-[480px] overflow-auto text-xs leading-relaxed whitespace-pre-wrap break-words font-mono">
@@ -327,7 +528,7 @@ function AskAboutFile({
     setQuestion("");
     setAnswer(null);
     setNote(null);
-  }, [messageId, attachment.id]);
+  }, [messageId, attachment.partId]);
 
   const ask = async () => {
     const asked = question.trim();
@@ -340,7 +541,7 @@ function AskAboutFile({
       const res = await fetch("/api/ai/attachment", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messageId, attachmentId: attachment.id, question: asked }),
+        body: JSON.stringify({ messageId, attachmentId: attachment.partId, question: asked }),
       });
       const data = (await res.json().catch(() => ({}))) as Record<string, string>;
       if (!res.ok) {

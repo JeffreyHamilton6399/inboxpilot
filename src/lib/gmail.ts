@@ -2,18 +2,23 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "@/lib/db";
-import type { ThreadMessage } from "@/lib/types";
+import type { MessageChange, ThreadMessage } from "@/lib/types";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim();
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
 
 export const GMAIL_CONFIGURED = Boolean(CLIENT_ID && CLIENT_SECRET);
 
-// Read plus send. The send scope is only ever used by an explicit press of the
-// Send button on a draft the user has read — nothing here sends on its own,
+// Read, change, send. The send scope is only ever used by an explicit press of
+// the Send button on a draft the user has read — nothing here sends on its own,
 // and there is no narrower Gmail scope for "reply within an existing thread".
 export const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
+  // Read, plus the label changes behind star, read/unread and archive.
+  // `gmail.modify` includes everything `gmail.readonly` allowed, so it
+  // replaces it rather than joining it. An account connected before this
+  // meets a 403 saying its scopes are insufficient, which `needsReconnect`
+  // already turns into a prompt to connect again.
+  "https://www.googleapis.com/auth/gmail.modify",
   // Needed to send a reply from inside the app. Gmail has no narrower scope
   // for "send only into a thread the user is already in".
   "https://www.googleapis.com/auth/gmail.send",
@@ -236,17 +241,46 @@ async function gmailFetch(url: string, accessToken: string): Promise<Response> {
   return res;
 }
 
+/**
+ * The Gmail query for a search box that may be empty.
+ *
+ * An empty box means the inbox. Anything typed is handed to Gmail as its own
+ * query language rather than being escaped into a literal: `from:`, `is:unread`,
+ * `has:attachment` and `older_than:` are what people already know, and they
+ * search all mail, not only the inbox — which is what Gmail's own box does.
+ */
+export function buildListQuery(search?: string): string {
+  const trimmed = search?.trim();
+  return trimmed ? trimmed : "in:inbox";
+}
+
+/** One page of the list, and the token that asks for the next one. */
+export interface MessagePage {
+  messages: GmailMessageMeta[];
+  /** Absent when this is the last page. */
+  nextPageToken?: string;
+}
+
 export async function listMessages(
   accessToken: string,
-  maxResults = 40
-): Promise<GmailMessageMeta[]> {
-  const listRes = await gmailFetch(
-    `${GMAIL_API}/users/me/messages?maxResults=${maxResults}&q=in:inbox`,
-    accessToken
-  );
-  const listData = (await listRes.json()) as { messages?: { id: string }[] };
+  maxResults = 40,
+  search?: string,
+  pageToken?: string
+): Promise<MessagePage> {
+  const params = new URLSearchParams({
+    maxResults: String(maxResults),
+    q: buildListQuery(search),
+  });
+  if (pageToken) params.set("pageToken", pageToken);
+
+  const listRes = await gmailFetch(`${GMAIL_API}/users/me/messages?${params}`, accessToken);
+  const listData = (await listRes.json()) as {
+    messages?: { id: string }[];
+    nextPageToken?: string;
+  };
+  const nextPageToken = listData.nextPageToken;
   const ids = (listData.messages ?? []).map((m) => m.id).filter(Boolean);
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { messages: [], nextPageToken };
 
   // Fetch metadata in parallel batches of 8.
   const out: GmailMessageMeta[] = [];
@@ -266,7 +300,7 @@ export async function listMessages(
     );
     for (const r of results) if (r) out.push(r);
   }
-  return out;
+  return { messages: out, nextPageToken };
 }
 
 export async function getMessageBody(
@@ -512,6 +546,62 @@ export async function sendReply(
 }
 
 
+// --- Changing messages ---
+
+/** Gmail has no verbs, only labels — starring is adding STARRED and so on. */
+export function labelsFor(change: MessageChange): {
+  addLabelIds: string[];
+  removeLabelIds: string[];
+} {
+  const addLabelIds: string[] = [];
+  const removeLabelIds: string[] = [];
+
+  const set = (label: string, on: boolean | undefined) => {
+    if (on === undefined) return;
+    (on ? addLabelIds : removeLabelIds).push(label);
+  };
+
+  set("STARRED", change.starred);
+  set("UNREAD", change.unread);
+  // Archiving is the absence of INBOX, so this one reads backwards.
+  if (change.archived !== undefined) {
+    (change.archived ? removeLabelIds : addLabelIds).push("INBOX");
+  }
+
+  return { addLabelIds, removeLabelIds };
+}
+
+/**
+ * Applies a change to one or more messages.
+ *
+ * batchModify rather than a modify apiece: archiving a whole category is a
+ * single button here, and doing that as ninety separate requests would be
+ * ninety chances to half-finish. Gmail takes up to 1000 ids at a time and
+ * answers with no body at all.
+ */
+export async function modifyMessages(
+  accessToken: string,
+  ids: string[],
+  change: MessageChange
+): Promise<void> {
+  const { addLabelIds, removeLabelIds } = labelsFor(change);
+  if (ids.length === 0 || (addLabelIds.length === 0 && removeLabelIds.length === 0)) {
+    return;
+  }
+
+  for (let i = 0; i < ids.length; i += 1000) {
+    const res = await fetch(`${GMAIL_API}/users/me/messages/batchModify`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ids: ids.slice(i, i + 1000), addLabelIds, removeLabelIds }),
+    });
+    if (!res.ok) throw new GmailApiError(res.status, await res.text().catch(() => ""));
+  }
+}
+
 // --- Attachments ---
 
 /**
@@ -521,6 +611,14 @@ export async function sendReply(
 export interface GmailAttachment {
   /** Gmail's attachmentId — opaque, and only valid for this message. */
   id: string;
+  /**
+   * Where the part sits in the MIME tree, e.g. `1.0`.
+   *
+   * This is what a client should hold on to. Unlike the attachmentId, which
+   * Gmail may hand back differently on a later `messages.get`, a part's
+   * position in the message cannot change — the message is immutable.
+   */
+  partId: string;
   filename: string;
   mimeType: string;
   /** Size in bytes. */
@@ -548,9 +646,9 @@ export function extractAttachments(payload: GmailPart | undefined): GmailAttachm
   if (!payload) return [];
   const found: GmailAttachment[] = [];
 
-  const walk = (part: GmailPart): void => {
+  const walk = (part: GmailPart, path: string): void => {
     if (part.parts?.length) {
-      for (const child of part.parts) walk(child);
+      part.parts.forEach((child, index) => walk(child, path ? `${path}.${index}` : String(index)));
       return;
     }
     if (!part.filename || !part.body?.attachmentId) return;
@@ -559,6 +657,7 @@ export function extractAttachments(payload: GmailPart | undefined): GmailAttachm
     const contentId = headerValue(part, "content-id");
     found.push({
       id: part.body.attachmentId,
+      partId: path || "0",
       filename: part.filename,
       mimeType: part.mimeType || "application/octet-stream",
       size: part.body.size ?? 0,
@@ -566,39 +665,67 @@ export function extractAttachments(payload: GmailPart | undefined): GmailAttachm
     });
   };
 
-  walk(payload);
+  walk(payload, "");
   return found;
 }
 
 /**
+ * Picks one part out of a message, given whatever the client was holding.
+ *
+ * The part path is tried before the attachmentId on purpose. Gmail's
+ * attachmentId is opaque and tied to a particular `messages.get` — it is not
+ * promised to come back the same on the next one, and when it does not, an id
+ * the page has been holding since it loaded matches nothing and a file that is
+ * plainly listed right there reports itself missing. The path is derived from
+ * the MIME tree, which cannot change, so it is the durable half.
+ */
+export function findAttachment(
+  list: GmailAttachment[],
+  selector: string
+): GmailAttachment | undefined {
+  return list.find((a) => a.partId === selector) ?? list.find((a) => a.id === selector);
+}
+
+/** Why a lookup came back with nothing, so the caller can say which it was. */
+export type AttachmentMiss =
+  | { ok: false; reason: "no-such-part"; available: string[] }
+  | { ok: false; reason: "no-bytes"; meta: GmailAttachment };
+
+/**
  * Fetches one attachment's bytes.
  *
- * The metadata is re-read from the message rather than trusted from the
- * caller: the filename and content type decide how the browser renders the
- * response, and neither should come from a query string.
+ * `selector` is a part path (preferred) or a Gmail attachmentId. The metadata
+ * is re-read from the message rather than trusted from the caller: the
+ * filename and content type decide how the browser renders the response, and
+ * neither should come from a query string.
  */
 export async function getAttachment(
   accessToken: string,
   messageId: string,
-  attachmentId: string
-): Promise<{ meta: GmailAttachment; data: Buffer } | null> {
+  selector: string
+): Promise<{ ok: true; meta: GmailAttachment; data: Buffer } | AttachmentMiss> {
   const msgRes = await gmailFetch(
     `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}?format=full`,
     accessToken
   );
   const msg = (await msgRes.json()) as GmailMessageMeta;
-  const meta = extractAttachments(msg.payload).find((a) => a.id === attachmentId);
-  if (!meta) return null;
+  const parts = extractAttachments(msg.payload);
+  const meta = findAttachment(parts, selector);
+  if (!meta) {
+    return { ok: false, reason: "no-such-part", available: parts.map((a) => a.partId) };
+  }
 
+  // Always the id from the message just fetched, never the caller's — that is
+  // the whole point of re-reading it.
   const res = await gmailFetch(
-    `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    `${GMAIL_API}/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(meta.id)}`,
     accessToken
   );
   const body = (await res.json()) as { data?: string };
-  if (!body.data) return null;
+  if (!body.data) return { ok: false, reason: "no-bytes", meta };
 
   const data = Buffer.from(body.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
-  return { meta: { ...meta, size: data.byteLength }, data };
+  return { ok: true, meta: { ...meta, size: data.byteLength }, data };
 }
 
 /** Reads a message's body and its attachment list in one round trip. */
