@@ -200,7 +200,7 @@ function CategoryFilter({
   return (
     // min-w-0 is what stops the scrolling row from pushing itself out under
     // the refresh button next to it, which clipped the last chip.
-    <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto scroll-thin pb-1">
+    <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto scroll-thin pb-1 [mask-image:linear-gradient(to_right,#000_calc(100%-1.5rem),transparent)]">
       {CATEGORIES.map((c) => (
         <FilterChip key={c.id} label={c.label} dot={c.dot} active={active === c.id} count={counts[c.id] ?? 0} onClick={() => onChange(c.id)} />
       ))}

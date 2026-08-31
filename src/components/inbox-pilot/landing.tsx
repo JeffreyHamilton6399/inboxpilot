@@ -72,15 +72,47 @@ const FACTS: { term: string; def: string }[] = [
 const SAMPLE: {
   from: string;
   subject: string;
+  preview: string;
   category: CategoryId;
   time: string;
   unread?: boolean;
 }[] = [
-  { from: "Sarah Chen", subject: "Re: Q3 roadmap — this looks right to me", category: "to-respond", time: "8m", unread: true },
-  { from: "David Park", subject: "Following up on Thursday", category: "awaiting-reply", time: "1h" },
-  { from: "Linear", subject: "3 issues assigned to you", category: "notification", time: "2h" },
-  { from: "Maya Singh", subject: "Re: debrief notes", category: "comment", time: "3h" },
-  { from: "Ravi Menon", subject: "Moved: design review → Friday 14:00", category: "meeting-update", time: "5h" },
+  {
+    from: "Sarah Chen",
+    subject: "Re: Q3 roadmap",
+    preview: "This looks right to me — one question about the second milestone.",
+    category: "to-respond",
+    time: "8m",
+    unread: true,
+  },
+  {
+    from: "David Park",
+    subject: "Following up on Thursday",
+    preview: "No rush. Keeping it near the top of your pile.",
+    category: "awaiting-reply",
+    time: "1h",
+  },
+  {
+    from: "Linear",
+    subject: "3 issues assigned to you",
+    preview: "ENG-441, ENG-448 and ENG-450 moved into your queue.",
+    category: "notification",
+    time: "2h",
+  },
+  {
+    from: "Maya Singh",
+    subject: "Re: debrief notes",
+    preview: "Added a comment under the third section about timing.",
+    category: "comment",
+    time: "3h",
+  },
+  {
+    from: "Ravi Menon",
+    subject: "Moved: design review",
+    preview: "Now Friday at 14:00, same room, same agenda.",
+    category: "meeting-update",
+    time: "5h",
+  },
 ];
 
 function initials(name: string) {
@@ -120,8 +152,8 @@ function InboxStill() {
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
               {initials(row.from)}
             </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-4">
+              <div className="flex items-center gap-2 sm:w-40 sm:shrink-0">
                 <span
                   className={
                     row.unread
@@ -131,11 +163,21 @@ function InboxStill() {
                 >
                   {row.from}
                 </span>
-                <CategoryBadge id={row.category} showDot={false} />
+                <CategoryBadge id={row.category} showDot={false} className="sm:hidden" />
               </div>
-              <div className="truncate text-xs text-muted-foreground">{row.subject}</div>
+              <div className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+                <span className={row.unread ? "font-medium text-foreground" : "text-foreground"}>
+                  {row.subject}
+                </span>{" "}
+                — {row.preview}
+              </div>
             </div>
-            <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+            <CategoryBadge
+              id={row.category}
+              showDot={false}
+              className="hidden shrink-0 sm:inline-flex"
+            />
+            <span className="w-6 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
               {row.time}
             </span>
           </li>
@@ -149,7 +191,7 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="border-b">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-5 sm:px-8">
+        <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-5 sm:px-8">
           <Wordmark />
           <div className="flex items-center gap-1">
             <a
@@ -173,7 +215,7 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
 
       <main className="flex-1">
         {/* Hero */}
-        <section className="mx-auto max-w-5xl px-5 pt-14 pb-4 sm:px-8 md:pt-24">
+        <section className="mx-auto max-w-4xl px-5 pt-14 pb-4 sm:px-8 md:pt-24">
           <div className="animate-fade-in">
             <p className="eyebrow">Self-hosted · MIT</p>
             <h1 className="display measure-wide mt-5 text-[2.75rem] sm:text-6xl md:text-7xl">
@@ -209,9 +251,8 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
         </section>
 
         {/* What it does */}
-        <section id="features" className="mx-auto max-w-5xl px-5 pt-20 sm:px-8 md:pt-32">
-          <p className="eyebrow">What it does</p>
-          <h2 className="display measure mt-4 text-3xl sm:text-4xl">
+        <section className="mx-auto max-w-4xl px-5 pt-20 sm:px-8 md:pt-28">
+          <h2 className="display measure text-3xl sm:text-4xl">
             Six things, each of which you can overrule.
           </h2>
 
@@ -236,9 +277,8 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
         </section>
 
         {/* How it runs */}
-        <section id="how" className="mx-auto max-w-5xl px-5 pt-20 sm:px-8 md:pt-32">
-          <p className="eyebrow">How it runs</p>
-          <h2 className="display measure mt-4 text-3xl sm:text-4xl">
+        <section className="mx-auto max-w-4xl px-5 pt-20 sm:px-8 md:pt-28">
+          <h2 className="display measure text-3xl sm:text-4xl">
             Nobody operates this. <em>You</em> do.
           </h2>
 
@@ -273,7 +313,7 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
         </section>
 
         {/* Close */}
-        <section className="mx-auto max-w-5xl px-5 pt-20 pb-24 sm:px-8 md:pt-32 md:pb-32">
+        <section className="mx-auto max-w-4xl px-5 pt-20 pb-24 sm:px-8 md:pt-28 md:pb-32">
           <div className="rule-top pt-10 md:pt-14">
             <h2 className="display measure text-3xl sm:text-4xl">
               Read the source first, if you like.
@@ -303,15 +343,9 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
       </main>
 
       <footer className="border-t">
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-5 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8">
+        <div className="mx-auto flex max-w-4xl flex-col gap-4 px-5 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <Wordmark />
           <div className="flex items-center gap-5">
-            <a href="#features" className="transition-colors hover:text-foreground">
-              What it does
-            </a>
-            <a href="#how" className="transition-colors hover:text-foreground">
-              How it runs
-            </a>
             <a
               href="https://github.com/JeffreyHamilton6399/inboxpilot"
               target="_blank"
@@ -319,6 +353,14 @@ export function Landing({ onGetStarted }: { onGetStarted: (tab?: "login" | "sign
               className="transition-colors hover:text-foreground"
             >
               Source
+            </a>
+            <a
+              href="https://github.com/JeffreyHamilton6399/inboxpilot/blob/main/LICENSE"
+              target="_blank"
+              rel="noreferrer"
+              className="transition-colors hover:text-foreground"
+            >
+              MIT licence
             </a>
           </div>
         </div>

@@ -126,21 +126,23 @@ export function ChatView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between border-b px-4 py-2.5">
-        <p className="eyebrow">
-          {grounded ? "Grounded in your inbox" : "No mail loaded"}
-        </p>
-        {chat.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-muted-foreground"
-            onClick={clearChat}
-            disabled={chatBusy}
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Clear
-          </Button>
-        )}
+      <div className="shrink-0 border-b py-2.5">
+        <div className="mx-auto flex h-7 max-w-2xl items-center justify-between px-5 sm:px-6">
+          <p className="eyebrow">
+            {grounded ? "Grounded in your inbox" : "No mail loaded"}
+          </p>
+          {chat.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-muted-foreground"
+              onClick={clearChat}
+              disabled={chatBusy}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Clear
+            </Button>
+          )}
+        </div>
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scroll-thin">
@@ -204,8 +206,8 @@ export function ChatView() {
         </div>
       </div>
 
-      <div className="shrink-0 border-t bg-background p-3">
-        <div className="mx-auto flex max-w-2xl items-end gap-2">
+      <div className="shrink-0 border-t bg-background py-3">
+        <div className="mx-auto flex max-w-2xl items-end gap-2 px-5 sm:px-6">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -234,7 +236,7 @@ export function ChatView() {
             </Button>
           )}
         </div>
-        <p className="mx-auto mt-2 max-w-2xl text-[11px] text-muted-foreground">
+        <p className="mx-auto mt-2 max-w-2xl px-5 text-[11px] text-muted-foreground sm:px-6">
           Enter sends · Shift+Enter for a new line
         </p>
       </div>
