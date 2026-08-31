@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/session";
 import { getGmailAuthForUser, listMessages, parseFrom, GmailApiError } from "@/lib/gmail";
 import type { Email } from "@/lib/types";
 import { categorize } from "@/lib/categorize";
+import { TtlCache } from "@/lib/ttl-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,8 +49,16 @@ function colorFor(seed: string): string {
 // 15-second in-memory cache per user to avoid hammering Gmail on re-renders.
 // Keyed by search and page as well as user: a search, the plain inbox and the
 // second page are different questions, and one's answer is not another's.
-const cache = new Map<string, { at: number; data: Email[]; nextPageToken?: string }>();
+//
+// Bounded, because that keying means a new entry per distinct query: an
+// instance serving several people through a day would otherwise hold every
+// search any of them ever ran, each with a page of messages attached.
 const CACHE_TTL = 15_000;
+const CACHE_MAX_ENTRIES = 200;
+const cache = new TtlCache<{ data: Email[]; nextPageToken?: string }>(
+  CACHE_TTL,
+  CACHE_MAX_ENTRIES
+);
 
 /** Gmail rejects a runaway query anyway; this just keeps it from being sent. */
 const MAX_QUERY_CHARS = 500;
@@ -64,7 +73,7 @@ export async function GET(req: Request) {
   const cacheKey = `${auth.userId}::${search}::${pageToken}`;
 
   const cached = cache.get(cacheKey);
-  if (cached && Date.now() - cached.at < CACHE_TTL) {
+  if (cached) {
     return NextResponse.json({
       emails: cached.data,
       nextPageToken: cached.nextPageToken,
@@ -85,7 +94,7 @@ export async function GET(req: Request) {
     const page = await listMessages(gmailAuth.accessToken, 40, search, pageToken || undefined);
     const { nextPageToken } = page;
     if (page.messages.length === 0) {
-      cache.set(cacheKey, { at: Date.now(), data: [], nextPageToken });
+      cache.set(cacheKey, { data: [], nextPageToken });
       return NextResponse.json({ emails: [], nextPageToken, search });
     }
 
@@ -126,7 +135,7 @@ export async function GET(req: Request) {
       };
     });
 
-    cache.set(cacheKey, { at: Date.now(), data: emails, nextPageToken });
+    cache.set(cacheKey, { data: emails, nextPageToken });
     return NextResponse.json({ emails, nextPageToken, search });
   } catch (err) {
     console.error("[gmail/messages] error:", err);
